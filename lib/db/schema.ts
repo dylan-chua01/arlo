@@ -1,26 +1,31 @@
-import {
-  boolean,
-  index,
-  integer,
-  pgTable,
-  text,
-  timestamp,
-} from "drizzle-orm/pg-core"
+import { index, pgTable, text, timestamp } from "drizzle-orm/pg-core"
+import { nanoid } from "nanoid"
 
-export const todos = pgTable(
-  "todos",
+export const bots = pgTable(
+  "bots",
   {
-    id: integer().primaryKey().generatedAlwaysAsIdentity(),
+    id: text()
+      .primaryKey()
+      .$defaultFn(() => nanoid()),
     // Clerk user ID
     userId: text("user_id").notNull(),
-    title: text().notNull(),
-    completed: boolean().notNull().default(false),
+    name: text().notNull(),
+    // Seed for the bot's face
+    avatar: text()
+      .notNull()
+      .$defaultFn(() => nanoid()),
+    // What the bot is for, in a phrase
+    job: text().notNull(),
+    // How it should go about the job
+    instructions: text(),
+    // Created lazily later
+    sandboxId: text("sandbox_id"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
   },
-  (table) => [index("todos_user_id_idx").on(table.userId)]
+  (table) => [index("bots_user_id_idx").on(table.userId)]
 )
 
-export type Todo = typeof todos.$inferSelect
-export type NewTodo = typeof todos.$inferInsert
+export type Bot = typeof bots.$inferSelect
+export type NewBot = typeof bots.$inferInsert
