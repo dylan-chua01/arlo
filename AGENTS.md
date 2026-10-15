@@ -13,6 +13,48 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 - Never create branches, worktrees, or commits automatically. Only do so when the user explicitly asks for that specific action in the current request.
 - Leave changes uncommitted in the working tree on the current branch and let the user decide when and how to commit.
 
+# Forms
+
+Reference implementation: `lib/db/schema.ts` (`insertBotSchema`), `actions/bot.ts` (`createBot`), `components/bot-dialog.tsx`.
+
+## Validation schema
+
+- Generate it from the Drizzle table with `createInsertSchema` from `drizzle-zod`, in `lib/db/schema.ts` directly below the table. Never hand-write a parallel zod schema for a table.
+- Put validation rules and user-facing messages in the column refinement callbacks (`name: (s) => s.trim().min(1, "…")`).
+- `.pick()` only the fields the user fills in. Server-owned columns (`id`, `userId`, `createdAt`, …) never appear in the schema. Use `.required()` for columns that have a DB default but that the form must always send.
+- Export the inferred type (`z.infer<typeof insertXSchema>`). The form and the server action share this one schema and type.
+- Use zod 4 (`import { z } from "zod"`). If npm reports a peer conflict from `@hookform/resolvers` → `@typeschema/zod` (an optional peer that still pins zod 3), install with `--legacy-peer-deps`.
+
+## Server actions
+
+- One file per entity: `actions/<entity>.ts`, with `"use server"` at the top.
+- Start every action with `const { isAuthenticated, userId } = await auth()` from `@clerk/nextjs/server`. Take `userId` only from Clerk, never from the client input.
+- Re-validate the input with `schema.safeParse()` on the server even though the client already validated.
+- Return a result union, `{ success: true, … } | { success: false; error: string }`, rather than throwing for expected failures. Format zod errors with `z.prettifyError`.
+- Turn empty optional strings into `null` before inserting, and call `revalidatePath` after the mutation.
+
+## Form components
+
+- Client component (`"use client"`) using `react-hook-form`: `useForm({ resolver: zodResolver(schema), defaultValues })`.
+- Render each field with `Controller` and the shadcn `Field` pieces: `Field data-invalid={fieldState.invalid}`, `FieldLabel htmlFor`, the control with a matching `id` and `aria-invalid={fieldState.invalid}`, and `FieldError errors={[fieldState.error]}`. Wrap the fields in a `FieldGroup`.
+- For nullable columns, give the control `value={field.value ?? ""}`.
+- Use `useWatch` to read values for the UI (previews, active states) and `form.setValue(…, { shouldValidate: true })` to fill fields programmatically.
+- Use `ToggleGroup` for preset or option chips, not looped `Button`s.
+- Show the pending state with `form.formState.isSubmitting`: disable the submit `Button` and add a `Spinner data-icon="inline-start"`.
+- Report the action's result with `toast.add({ type, title, description })` from `@/components/ui/toast` (Base UI, not sonner).
+- Generate random client values such as seeds in a `getDefaultValues()` function so each reset gets fresh ones.
+
+## Forms in dialogs
+
+- The component owns its `Dialog`, takes the trigger as `children: React.ReactElement`, and renders it with `<DialogTrigger render={children} />`. This is Base UI, so use `render`, not `asChild`. Server pages wrap their existing button in the component.
+- Control `open` with state and close it on success.
+- Give the `<form>` an `id`. Put the actions in `DialogFooter`: Cancel as `<DialogClose render={<Button variant="outline" />}>` and submit as `<Button type="submit" form="<id>">`.
+- Reset in `onOpenChangeComplete` when it closes (`form.reset(getDefaultValues())`), not in `onOpenChange`, so the form doesn't visibly clear during the close animation.
+
+## Verify
+
+Run `npx tsc --noEmit`, `npx eslint <changed files>`, and `npm run build` (which catches client bundles importing server-only code).
+
 # Database
 
 - Apply schema changes with `npm run db:push` (`drizzle-kit push`) only.
