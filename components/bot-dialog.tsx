@@ -67,8 +67,19 @@ function getDefaultValues() {
   return { name: "", avatar: nanoid(), job: "", instructions: "" }
 }
 
-function BotDialog({ children }: { children: React.ReactElement }) {
-  const [open, setOpen] = React.useState(false)
+function BotDialog({
+  children,
+  open: openProp,
+  onOpenChange,
+}: {
+  children?: React.ReactElement
+  // Control it from outside when the trigger can't live in the dialog, like a menu item
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
+}) {
+  const [uncontrolledOpen, setUncontrolledOpen] = React.useState(false)
+  const open = openProp ?? uncontrolledOpen
+  const setOpen = onOpenChange ?? setUncontrolledOpen
 
   const form = useForm({
     resolver: zodResolver(insertBotSchema),
@@ -104,7 +115,7 @@ function BotDialog({ children }: { children: React.ReactElement }) {
         if (!open) form.reset(getDefaultValues())
       }}
     >
-      <DialogTrigger render={children} />
+      {children && <DialogTrigger render={children} />}
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>New bot</DialogTitle>
