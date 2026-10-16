@@ -15,6 +15,7 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
+  SidebarRail,
 } from "@/components/ui/sidebar"
 import { getChats } from "@/queries/bots"
 
@@ -22,21 +23,26 @@ export async function AppSidebar() {
   const chats = await getChats()
 
   return (
-    <Sidebar>
+    <Sidebar collapsible="icon">
       <SidebarHeader>
-        <div className="flex justify-end">
-          <CreateMenu />
-        </div>
-        <SearchCommand chats={chats} />
+        <SidebarMenu>
+          <SidebarMenuItem className="flex justify-end">
+            <CreateMenu />
+          </SidebarMenuItem>
+          <SidebarMenuItem>
+            <SearchCommand chats={chats} />
+          </SidebarMenuItem>
+        </SidebarMenu>
       </SidebarHeader>
       <SidebarContent>
         <SidebarGroup>
           <SidebarGroupContent>
-            <SidebarMenu>
+            <SidebarMenu className="group-data-[collapsible=icon]:gap-2">
               {chats.map((chat) => (
                 <SidebarMenuItem key={chat.id}>
                   <SidebarMenuButton
                     size="lg"
+                    tooltip={chat.name ?? chat.bot?.name}
                     render={<Link href={`/chats/${chat.id}`} />}
                   >
                     <ChatAvatar seed={chat.bot?.avatar ?? chat.id} />
@@ -78,7 +84,7 @@ export async function AppSidebar() {
                     userButtonBox: "min-w-0! flex-row-reverse! gap-2!",
                     userButtonAvatarBox: "size-8! rounded-lg!",
                     userButtonOuterIdentifier:
-                      "truncate! ps-0! text-sm! font-medium! text-inherit!",
+                      "truncate! ps-0! text-sm! font-medium! text-inherit! group-data-[collapsible=icon]:hidden!",
                   },
                 }}
               />
@@ -86,6 +92,7 @@ export async function AppSidebar() {
           </SidebarMenuItem>
         </SidebarMenu>
       </SidebarFooter>
+      <SidebarRail />
     </Sidebar>
   )
 }
