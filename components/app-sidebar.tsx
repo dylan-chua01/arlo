@@ -1,8 +1,10 @@
 import { UserButton } from "@clerk/nextjs"
 import { formatDistanceToNowStrict } from "date-fns"
+import Link from "next/link"
 
 import { ChatAvatar } from "@/components/chat-avatar"
 import { CreateMenu } from "@/components/create-menu"
+import { SearchCommand } from "@/components/search-command"
 import {
   Sidebar,
   SidebarContent,
@@ -21,8 +23,11 @@ export async function AppSidebar() {
 
   return (
     <Sidebar>
-      <SidebarHeader className="flex-row justify-end">
-        <CreateMenu />
+      <SidebarHeader>
+        <div className="flex justify-end">
+          <CreateMenu />
+        </div>
+        <SearchCommand chats={chats} />
       </SidebarHeader>
       <SidebarContent>
         <SidebarGroup>
@@ -30,7 +35,10 @@ export async function AppSidebar() {
             <SidebarMenu>
               {chats.map((chat) => (
                 <SidebarMenuItem key={chat.id}>
-                  <SidebarMenuButton size="lg">
+                  <SidebarMenuButton
+                    size="lg"
+                    render={<Link href={`/chats/${chat.id}`} />}
+                  >
                     <ChatAvatar seed={chat.bot?.avatar ?? chat.id} />
                     <div className="grid min-w-0 flex-1 leading-tight">
                       <div className="flex items-baseline justify-between gap-2">
