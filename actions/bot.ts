@@ -1,6 +1,7 @@
 "use server"
 
 import { auth } from "@clerk/nextjs/server"
+import { and, eq, inArray } from "drizzle-orm"
 import { revalidatePath } from "next/cache"
 import { nanoid } from "nanoid"
 import { z } from "zod"
@@ -54,4 +55,78 @@ export async function createBot(input: InsertBot): Promise<CreateBotResult> {
   revalidatePath("/")
 
   return { success: true, bot, chat }
+}
+
+type UpdateBotResult =
+  { success: true; bot: Bot } | { success: false; error: string }
+
+export async function updateBot(
+  botId: string,
+  input: InsertBot
+): Promise<UpdateBotResult> {
+  const { isAuthenticated, userId } = await auth()
+  if (!isAuthenticated) {
+    return { success: false, error: "You need to be signed in." }
+  }
+
+  const parsed = insertBotSchema.safeParse(input)
+  if (!parsed.success) {
+    return { success: false, error: z.prettifyError(parsed.error) }
+  }
+
+  const { instructions, ...values } = parsed.data
+
+  // Scoped to the user so nobody can edit a bot that isn't theirs
+  const [bot] = await db
+    .update(bots)
+    .set({ ...values, instructions: instructions || null })
+    .where(and(eq(bots.id, botId), eq(bots.userId, userId)))
+    .returning()
+  if (!bot) {
+    return { success: false, error: "That bot doesn't exist." }
+  }
+
+  revalidatePath("/", "layout")
+
+  return { success: true, bot }
+}
+
+type DeleteBotResult =
+  { success: true; bot: Bot } | { success: false; error: string }
+
+export async function deleteBot(botId: string): Promise<DeleteBotResult> {
+  const { isAuthenticated, userId } = await auth()
+  if (!isAuthenticated) {
+    return { success: false, error: "You need to be signed in." }
+  }
+
+  // Its direct chats go with it; members cascade from both chats and bots
+  const [, [bot]] = await db.batch([
+    db
+      .delete(chats)
+      .where(
+        and(
+          eq(chats.userId, userId),
+          eq(chats.kind, "direct"),
+          inArray(
+            chats.id,
+            db
+              .select({ chatId: chatMembers.chatId })
+              .from(chatMembers)
+              .where(eq(chatMembers.botId, botId))
+          )
+        )
+      ),
+    db
+      .delete(bots)
+      .where(and(eq(bots.id, botId), eq(bots.userId, userId)))
+      .returning(),
+  ])
+  if (!bot) {
+    return { success: false, error: "That bot doesn't exist." }
+  }
+
+  revalidatePath("/", "layout")
+
+  return { success: true, bot }
 }

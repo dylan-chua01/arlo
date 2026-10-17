@@ -17,7 +17,7 @@ import {
 } from "@/components/ui/command"
 import { Kbd, KbdGroup } from "@/components/ui/kbd"
 import { SidebarMenuButton } from "@/components/ui/sidebar"
-import type { getChats } from "@/queries/bots"
+import type { getChats } from "@/queries/chats"
 
 function SearchCommand({
   chats,

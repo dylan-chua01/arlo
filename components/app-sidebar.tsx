@@ -1,8 +1,8 @@
 import { UserButton } from "@clerk/nextjs"
 import { formatDistanceToNowStrict } from "date-fns"
-import Link from "next/link"
 
 import { ChatAvatar } from "@/components/chat-avatar"
+import { ChatMenuButton } from "@/components/chat-menu-button"
 import { CreateMenu } from "@/components/create-menu"
 import { SearchCommand } from "@/components/search-command"
 import {
@@ -17,7 +17,7 @@ import {
   SidebarMenuItem,
   SidebarRail,
 } from "@/components/ui/sidebar"
-import { getChats } from "@/queries/bots"
+import { getChats } from "@/queries/chats"
 
 export async function AppSidebar() {
   const chats = await getChats()
@@ -40,10 +40,9 @@ export async function AppSidebar() {
             <SidebarMenu className="group-data-[collapsible=icon]:gap-2">
               {chats.map((chat) => (
                 <SidebarMenuItem key={chat.id}>
-                  <SidebarMenuButton
-                    size="lg"
+                  <ChatMenuButton
+                    chatId={chat.id}
                     tooltip={chat.name ?? chat.bot?.name}
-                    render={<Link href={`/chats/${chat.id}`} />}
                   >
                     <ChatAvatar seed={chat.bot?.avatar ?? chat.id} />
                     <div className="grid min-w-0 flex-1 leading-tight">
@@ -59,7 +58,7 @@ export async function AppSidebar() {
                         {chat.lastMessagePreview}
                       </span>
                     </div>
-                  </SidebarMenuButton>
+                  </ChatMenuButton>
                 </SidebarMenuItem>
               ))}
             </SidebarMenu>
