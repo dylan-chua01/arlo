@@ -42,3 +42,5 @@ next-env.d.ts
 .firecrawl/
 .clerk/
 .neon
+
+.trigger
