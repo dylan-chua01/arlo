@@ -6,6 +6,7 @@ import { revalidatePath } from "next/cache"
 import { nanoid } from "nanoid"
 import { z } from "zod"
 
+import { daytona } from "@/lib/daytona"
 import { db } from "@/lib/db"
 import {
   bots,
@@ -37,20 +38,42 @@ export async function createBot(input: InsertBot): Promise<CreateBotResult> {
   const botId = nanoid()
   const chatId = nanoid()
 
-  // neon-http has no interactive transactions; a batch runs as one transaction
-  const [[bot], [chat]] = await db.batch([
-    db
-      .insert(bots)
-      .values({
-        ...values,
-        id: botId,
-        instructions: instructions || null,
-        userId,
-      })
-      .returning(),
-    db.insert(chats).values({ id: chatId, userId, kind: "direct" }).returning(),
-    db.insert(chatMembers).values({ chatId, botId }),
-  ])
+  // Labels let an orphaned sandbox be traced back to its bot
+  let sandbox
+  try {
+    sandbox = await daytona.create({ labels: { botId, userId } })
+  } catch (error) {
+    console.error("Failed to create sandbox", error)
+    return { success: false, error: "Couldn't set up your bot. Try again." }
+  }
+
+  let bot: Bot
+  let chat: Chat
+  try {
+    // neon-http has no interactive transactions; a batch runs as one transaction
+    ;[[bot], [chat]] = await db.batch([
+      db
+        .insert(bots)
+        .values({
+          ...values,
+          id: botId,
+          instructions: instructions || null,
+          sandboxId: sandbox.id,
+          userId,
+        })
+        .returning(),
+      db
+        .insert(chats)
+        .values({ id: chatId, userId, kind: "direct" })
+        .returning(),
+      db.insert(chatMembers).values({ chatId, botId }),
+    ])
+  } catch (error) {
+    await sandbox.delete().catch((deleteError) => {
+      console.error("Failed to delete sandbox", sandbox.id, deleteError)
+    })
+    throw error
+  }
 
   revalidatePath("/")
 
@@ -124,6 +147,14 @@ export async function deleteBot(botId: string): Promise<DeleteBotResult> {
   ])
   if (!bot) {
     return { success: false, error: "That bot doesn't exist." }
+  }
+
+  // The bot is already gone, so a failure here only leaves an orphaned sandbox
+  try {
+    const sandbox = await daytona.get(bot.sandboxId)
+    await daytona.delete(sandbox)
+  } catch (error) {
+    console.error("Failed to delete sandbox", bot.sandboxId, error)
   }
 
   revalidatePath("/", "layout")

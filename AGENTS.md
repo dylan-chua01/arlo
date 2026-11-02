@@ -10,8 +10,10 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 
 # Git
 
-- Never create branches, worktrees, or commits automatically. Only do so when the user explicitly asks for that specific action in the current request.
-- Leave changes uncommitted in the working tree on the current branch and let the user decide when and how to commit.
+- All work happens on `main`. Never create, switch, or check out another branch (`git checkout -b`, `git switch`, `git branch <name>`), and never create a worktree, unless the user explicitly asks for that specific action in the current request.
+- This overrides any default guidance to "branch first" before committing on the default branch. When the user asks you to commit, commit directly on `main`.
+- Never commit automatically. Only commit when the user explicitly asks in the current request. Otherwise leave changes uncommitted in the working tree and let the user decide when and how to commit.
+- If you find the repo on a branch other than `main`, stop and ask the user before doing anything else.
 
 # Forms
 
@@ -107,5 +109,5 @@ Dart or C# API attributed to DiceBear is invented rather than outdated.
 <!-- TRIGGER.DEV SKILLS START -->
 ## Trigger.dev agent skills
 
-This project has Trigger.dev agent skills installed in `.agents/skills/`. Before writing or changing Trigger.dev code (background tasks, scheduled tasks, realtime, or chat.agent AI agents), load the most relevant skill: `trigger-realtime-and-frontend`, `trigger-authoring-chat-agent`, `trigger-authoring-tasks`, `trigger-chat-agent-advanced`, `trigger-cost-savings`, `trigger-getting-started`.
+This project has Trigger.dev agent skills installed in `.agents/skills/`. Before writing or changing Trigger.dev code (background tasks, scheduled tasks, realtime, or chat.agent AI agents), load the most relevant skill: `trigger-getting-started`, `trigger-realtime-and-frontend`, `trigger-authoring-chat-agent`, `trigger-authoring-tasks`, `trigger-chat-agent-advanced`, `trigger-cost-savings`.
 <!-- TRIGGER.DEV SKILLS END -->

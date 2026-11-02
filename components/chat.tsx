@@ -6,7 +6,6 @@ import {
   useLoadTranscript,
   useTriggerChatTransport,
 } from "@trigger.dev/sdk/chat/react"
-import type { UIMessage } from "ai"
 
 import {
   loadChatTranscript,
@@ -19,6 +18,7 @@ import {
   ConversationEmptyState,
   ConversationScrollButton,
 } from "@/components/ai-elements/conversation"
+import { Image } from "@/components/ai-elements/image"
 import {
   Message,
   MessageContent,
@@ -32,7 +32,23 @@ import {
   PromptInputTextarea,
   type PromptInputMessage,
 } from "@/components/ai-elements/prompt-input"
+import { Terminal } from "@/components/ai-elements/terminal"
+import {
+  Tool,
+  ToolContent,
+  ToolHeader,
+  ToolInput,
+  ToolOutput,
+} from "@/components/ai-elements/tool"
+import { Skeleton } from "@/components/ui/skeleton"
 import type { chatAgent } from "@/trigger/chat"
+import type { ChatUIMessage } from "@/trigger/tools"
+
+type Part = ChatUIMessage["parts"][number]
+type ToolPart = Extract<Part, { type: `tool-${string}` }>
+
+// Image wants a GeneratedFile, but only reads base64 and mediaType
+const NO_BYTES = new Uint8Array()
 
 export function Chat({ id }: { id: string }) {
   const transport = useTriggerChatTransport<typeof chatAgent>({
@@ -48,7 +64,14 @@ export function Chat({ id }: { id: string }) {
   // useChat only reads initial messages on mount, so wait for the transcript
   if (isLoading) return null
 
-  return <ChatView id={id} transport={transport} initialMessages={messages} />
+  return (
+    <ChatView
+      id={id}
+      transport={transport}
+      // The transcript is written by the agent, so it carries its tool parts
+      initialMessages={messages as ChatUIMessage[]}
+    />
+  )
 }
 
 function ChatView({
@@ -58,9 +81,9 @@ function ChatView({
 }: {
   id: string
   transport: TriggerChatTransport
-  initialMessages: UIMessage[]
+  initialMessages: ChatUIMessage[]
 }) {
-  const { messages, sendMessage, status, stop } = useChat({
+  const { messages, sendMessage, status, stop } = useChat<ChatUIMessage>({
     id,
     transport,
     messages: initialMessages,
@@ -84,13 +107,9 @@ function ChatView({
             messages.map((message) => (
               <Message from={message.role} key={message.id}>
                 <MessageContent>
-                  {message.parts.map((part, i) =>
-                    part.type === "text" ? (
-                      <MessageResponse key={`${message.id}-${i}`}>
-                        {part.text}
-                      </MessageResponse>
-                    ) : null
-                  )}
+                  {message.parts.map((part, i) => (
+                    <MessagePart key={`${message.id}-${i}`} part={part} />
+                  ))}
                 </MessageContent>
               </Message>
             ))
@@ -111,4 +130,133 @@ function ChatView({
       </div>
     </div>
   )
+}
+
+function MessagePart({ part }: { part: Part }) {
+  switch (part.type) {
+    case "text":
+      return <MessageResponse>{part.text}</MessageResponse>
+    // The bot's own look at the screen; the person never sees it
+    case "tool-viewScreen":
+      return null
+    case "tool-showScreen":
+      return <ShowScreen part={part} />
+    case "tool-bash":
+      return <BashCall part={part} />
+    case "tool-readFile":
+    case "tool-writeFile":
+    case "tool-listFiles":
+    case "tool-mouseMove":
+    case "tool-mouseClick":
+    case "tool-mouseDrag":
+    case "tool-mouseScroll":
+    case "tool-keyboardType":
+    case "tool-keyboardPress":
+      return <ToolCall part={part} />
+    default:
+      return null
+  }
+}
+
+function ShowScreen({
+  part,
+}: {
+  part: Extract<Part, { type: "tool-showScreen" }>
+}) {
+  if (part.state === "output-available") {
+    return (
+      <Image
+        alt="The bot's screen"
+        base64={part.output.base64}
+        mediaType={part.output.mediaType}
+        uint8Array={NO_BYTES}
+        className="border"
+      />
+    )
+  }
+  if (part.state === "output-error") {
+    return <ToolCall part={part} />
+  }
+  return <Skeleton className="aspect-video w-full" />
+}
+
+function BashCall({ part }: { part: Extract<Part, { type: "tool-bash" }> }) {
+  const command = part.input?.command ?? ""
+  const output =
+    part.state === "output-available"
+      ? `$ ${command}\n${part.output.output}${part.output.exitCode === 0 ? "" : `\n[exit ${part.output.exitCode}]`}`
+      : `$ ${command}`
+
+  return (
+    <Tool>
+      <ToolHeader
+        type={part.type}
+        state={part.state}
+        title={describeTool(part)}
+      />
+      <ToolContent>
+        {part.state === "output-error" ? (
+          <ToolOutput output={undefined} errorText={part.errorText} />
+        ) : (
+          <Terminal
+            output={output}
+            isStreaming={part.state === "input-available"}
+          />
+        )}
+      </ToolContent>
+    </Tool>
+  )
+}
+
+function ToolCall({ part }: { part: ToolPart }) {
+  return (
+    <Tool>
+      <ToolHeader
+        type={part.type}
+        state={part.state}
+        title={describeTool(part)}
+      />
+      <ToolContent>
+        <ToolInput input={part.input} />
+        <ToolOutput
+          output={part.state === "output-available" ? part.output : undefined}
+          errorText={part.errorText}
+        />
+      </ToolContent>
+    </Tool>
+  )
+}
+
+// Input is partial while it streams, so every field may be missing
+function describeTool(part: ToolPart): string {
+  switch (part.type) {
+    case "tool-bash":
+      return part.input?.command ? `Ran ${part.input.command}` : "Ran a command"
+    case "tool-readFile":
+      return `Read ${part.input?.path ?? "a file"}`
+    case "tool-writeFile":
+      return `Wrote ${part.input?.path ?? "a file"}`
+    case "tool-listFiles":
+      return `Listed ${part.input?.path ?? "a folder"}`
+    case "tool-mouseMove":
+      return `Moved the mouse to ${point(part.input)}`
+    case "tool-mouseClick":
+      return `${part.input?.double ? "Double-clicked" : "Clicked"} at ${point(part.input)}`
+    case "tool-mouseDrag":
+      return `Dragged from ${point({ x: part.input?.startX, y: part.input?.startY })} to ${point({ x: part.input?.endX, y: part.input?.endY })}`
+    case "tool-mouseScroll":
+      return `Scrolled ${part.input?.direction ?? ""} at ${point(part.input)}`
+    case "tool-keyboardType":
+      return "Typed text"
+    case "tool-keyboardPress":
+      return `Pressed ${[...(part.input?.modifiers ?? []), part.input?.key].filter(Boolean).join("+")}`
+    case "tool-viewScreen":
+      return "Looked at the screen"
+    case "tool-showScreen":
+      return "Showed the screen"
+  }
+}
+
+function point(input?: { x?: number; y?: number }) {
+  return input?.x == null || input?.y == null ? "…" : `(${input.x}, ${input.y})`
 }
