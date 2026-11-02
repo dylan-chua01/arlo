@@ -1,0 +1,64 @@
+"use server"
+
+import { auth } from "@clerk/nextjs/server"
+
+import { daytona } from "@/lib/daytona"
+import { db } from "@/lib/db"
+
+// noVNC, started by computerUse.start() alongside Xvfb, xfce4 and x11vnc
+const NOVNC_PORT = 6080
+
+// Long enough that an open panel doesn't drop out from under the user
+const URL_TTL_SECONDS = 60 * 60 * 6
+
+type GetDesktopUrlResult =
+  { success: true; url: string } | { success: false; error: string }
+
+// A browser-loadable noVNC URL for the bot's sandbox desktop, waking both if needed
+export async function getDesktopUrl(
+  botId: string
+): Promise<GetDesktopUrlResult> {
+  const { isAuthenticated, userId } = await auth()
+  if (!isAuthenticated) {
+    return { success: false, error: "You need to be signed in." }
+  }
+
+  const bot = await db.query.bots.findFirst({
+    where: (bots, { and, eq }) =>
+      and(eq(bots.id, botId), eq(bots.userId, userId)),
+  })
+  if (!bot) {
+    return { success: false, error: "That bot doesn't exist." }
+  }
+
+  try {
+    const sandbox = await daytona.get(bot.sandboxId)
+    if (sandbox.state === "starting") {
+      await sandbox.waitUntilStarted()
+    } else if (sandbox.state !== "started") {
+      await sandbox.start()
+    }
+
+    const { status } = await sandbox.computerUse.getStatus()
+    if (status !== "active") {
+      await sandbox.computerUse.start()
+    }
+
+    // Signed, so the token rides in the hostname instead of a header an iframe can't send
+    const { url } = await sandbox.getSignedPreviewUrl(
+      NOVNC_PORT,
+      URL_TTL_SECONDS
+    )
+    const params = new URLSearchParams({
+      autoconnect: "true",
+      reconnect: "true",
+      // Scale the remote screen to the frame; "remote" would resize the
+      // sandbox's display out from under the bot's pixel coordinates
+      resize: "scale",
+    })
+    return { success: true, url: `${url}/vnc.html?${params}` }
+  } catch (error) {
+    console.error("Failed to open desktop", bot.sandboxId, error)
+    return { success: false, error: "Couldn't reach the bot's desktop." }
+  }
+}
