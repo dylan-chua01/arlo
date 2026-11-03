@@ -31,7 +31,7 @@ import {
 } from "@/components/ui/empty"
 import { ResizablePanel } from "@/components/ui/resizable"
 import { Spinner } from "@/components/ui/spinner"
-import { useUpgradeToast } from "@/hooks/use-upgrade-toast"
+import { useUpgradeToast, useUsageLimitToast } from "@/hooks/use-upgrade-toast"
 import type { Bot } from "@/lib/db/schema"
 
 const DesktopPanelContext = createContext<{
@@ -86,6 +86,7 @@ export function DesktopPanel({
   const [dialogSlot, setDialogSlot] = useState<HTMLDivElement | null>(null)
   const frameRef = useRef<HTMLIFrameElement>(null)
   const showUpgradeToast = useUpgradeToast()
+  const showUsageLimitToast = useUsageLimitToast()
 
   async function load() {
     if (!bot) return
@@ -93,6 +94,9 @@ export function DesktopPanel({
     const result = await getDesktopUrl(bot.id)
     if (!result.success && "upgradeRequired" in result) {
       showUpgradeToast("Couldn't open the desktop")
+    }
+    if (!result.success && "usageLimitReached" in result) {
+      showUsageLimitToast("Couldn't open the desktop")
     }
     setDesktop(
       result.success

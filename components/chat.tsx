@@ -54,8 +54,14 @@ import {
 } from "@/components/ai-elements/tool"
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
-import { useUpgradeToast } from "@/hooks/use-upgrade-toast"
-import { BOTS, SANDBOXES, UPGRADE_ERROR } from "@/lib/billing"
+import { useUpgradeToast, useUsageLimitToast } from "@/hooks/use-upgrade-toast"
+import {
+  BOTS,
+  SANDBOXES,
+  UPGRADE_ERROR,
+  USAGE_LIMIT_ERROR,
+} from "@/lib/billing"
+import { CHAT_AGENT_VERSION } from "@/lib/chat-agent"
 import type { Bot } from "@/lib/db/schema"
 import type { chatAgent } from "@/trigger/chat"
 import type { ChatUIMessage } from "@/trigger/tools"
@@ -82,8 +88,9 @@ export function Chat({
     accessToken: ({ chatId }) => mintChatAccessToken(chatId),
     startSession: ({ chatId, clientData }) =>
       startChatSession({ chatId, clientData }),
-    // Sent with every turn, so the agent answers as the picked bot
-    clientData: { botId },
+    // Sent with every turn, so the agent answers as the picked bot and a run on
+    // stale agent code knows to upgrade
+    clientData: { botId, agentVersion: CHAT_AGENT_VERSION },
   })
   const { messages, isLoading } = useLoadTranscript(id, loadChatTranscript, {
     transport,
@@ -130,10 +137,20 @@ function ChatView({
 }) {
   const { has } = useAuth()
   const showUpgradeToast = useUpgradeToast()
+  const showUsageLimitToast = useUsageLimitToast()
   const { messages, sendMessage, status, stop } = useChat<ChatUIMessage>({
     id,
     transport,
     messages: initialMessages,
+    // The agent checks the plan and allowance every turn and fails the turn
+    // with one of these messages
+    onError: (error) => {
+      if (error.message === USAGE_LIMIT_ERROR) {
+        showUsageLimitToast("Couldn't send message")
+      } else if (error.message === UPGRADE_ERROR) {
+        showUpgradeToast("Couldn't send message")
+      }
+    },
     onFinish: ({ message }) => {
       const { botId, handedFrom } = message.metadata ?? {}
       if (botId && handedFrom) onHandoff?.(botId)

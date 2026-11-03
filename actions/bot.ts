@@ -10,7 +10,9 @@ import {
   BOTS,
   SANDBOXES,
   upgradeRequired,
+  usageLimitReached,
   type UpgradeRequired,
+  type UsageLimitReached,
 } from "@/lib/billing"
 import { daytona, MEMORY_PATH } from "@/lib/daytona"
 import { db } from "@/lib/db"
@@ -23,11 +25,13 @@ import {
   type Chat,
   type InsertBot,
 } from "@/lib/db/schema"
+import { getUsage, isSpent } from "@/lib/usage"
 
 type CreateBotResult =
   | { success: true; bot: Bot; chat: Chat }
   | { success: false; error: string }
   | UpgradeRequired
+  | UsageLimitReached
 
 export async function createBot(input: InsertBot): Promise<CreateBotResult> {
   const { isAuthenticated, userId, has } = await auth()
@@ -38,6 +42,10 @@ export async function createBot(input: InsertBot): Promise<CreateBotResult> {
   if (!has({ feature: BOTS }) || !has({ feature: SANDBOXES })) {
     return upgradeRequired
   }
+  const usage = await getUsage(userId)
+  if (!usage) return upgradeRequired
+  // A new sandbox starts running, so it needs sandbox time left
+  if (isSpent(usage, "sandbox")) return usageLimitReached
 
   const parsed = insertBotSchema.safeParse(input)
   if (!parsed.success) {
@@ -53,7 +61,12 @@ export async function createBot(input: InsertBot): Promise<CreateBotResult> {
   // Labels let an orphaned sandbox be traced back to its bot
   let sandbox
   try {
-    sandbox = await daytona.create({ labels: { botId, userId } })
+    sandbox = await daytona.create({
+      labels: { botId, userId },
+      // Idle time counts against the owner's sandbox allowance, so stop sooner
+      // than Daytona's default 15 minutes
+      autoStopInterval: 10,
+    })
   } catch (error) {
     console.error("Failed to create sandbox", error)
     return { success: false, error: "Couldn't set up your bot. Try again." }

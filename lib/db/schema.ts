@@ -1,6 +1,7 @@
 import { relations } from "drizzle-orm"
 import {
   index,
+  integer,
   pgEnum,
   pgTable,
   primaryKey,
@@ -112,6 +113,45 @@ export const chatMembers = pgTable(
   ]
 )
 
+export const usageMeter = pgEnum("usage_meter", ["ai", "sandbox"])
+
+// Append-only ledger of metered usage. A period's usage is the sum of its
+// rows, so nothing is ever reset or decremented.
+export const usageEvents = pgTable(
+  "usage_events",
+  {
+    id: text()
+      .primaryKey()
+      .$defaultFn(() => nanoid()),
+    // Clerk user ID
+    userId: text("user_id").notNull(),
+    meter: usageMeter().notNull(),
+    // ai: model cost in millionths of a dollar; sandbox: running seconds
+    amount: integer().notNull(),
+    // No foreign keys, so usage outlives a deleted bot or chat
+    botId: text("bot_id"),
+    chatId: text("chat_id"),
+    sandboxId: text("sandbox_id"),
+    model: text(),
+    inputTokens: integer("input_tokens"),
+    outputTokens: integer("output_tokens"),
+    cacheReadTokens: integer("cache_read_tokens"),
+    cacheWriteTokens: integer("cache_write_tokens"),
+    // Set by the sandbox meter, so a retried run can't charge twice
+    idempotencyKey: text("idempotency_key").unique(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index("usage_events_user_meter_created_at_idx").on(
+      table.userId,
+      table.meter,
+      table.createdAt
+    ),
+  ]
+)
+
 export const botsRelations = relations(bots, ({ many }) => ({
   memberships: many(chatMembers),
 }))
@@ -133,3 +173,5 @@ export type InsertGroupChat = z.infer<typeof insertGroupChatSchema>
 export type NewChat = typeof chats.$inferInsert
 export type ChatMember = typeof chatMembers.$inferSelect
 export type NewChatMember = typeof chatMembers.$inferInsert
+export type UsageEvent = typeof usageEvents.$inferSelect
+export type NewUsageEvent = typeof usageEvents.$inferInsert

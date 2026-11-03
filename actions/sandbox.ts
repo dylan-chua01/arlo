@@ -2,9 +2,16 @@
 
 import { auth } from "@clerk/nextjs/server"
 
-import { SANDBOXES, upgradeRequired, type UpgradeRequired } from "@/lib/billing"
+import {
+  SANDBOXES,
+  upgradeRequired,
+  usageLimitReached,
+  type UpgradeRequired,
+  type UsageLimitReached,
+} from "@/lib/billing"
 import { daytona } from "@/lib/daytona"
 import { db } from "@/lib/db"
+import { getUsage, isSpent } from "@/lib/usage"
 
 // noVNC, started by computerUse.start() alongside Xvfb, xfce4 and x11vnc
 const NOVNC_PORT = 6080
@@ -16,6 +23,7 @@ type GetDesktopUrlResult =
   | { success: true; url: string }
   | { success: false; error: string }
   | UpgradeRequired
+  | UsageLimitReached
 
 // A browser-loadable noVNC URL for the bot's sandbox desktop, waking both if needed
 export async function getDesktopUrl(
@@ -28,6 +36,10 @@ export async function getDesktopUrl(
   if (!has({ feature: SANDBOXES })) {
     return upgradeRequired
   }
+  // Opening the desktop wakes the sandbox, and an open panel keeps it awake
+  const usage = await getUsage(userId)
+  if (!usage) return upgradeRequired
+  if (isSpent(usage, "sandbox")) return usageLimitReached
 
   const bot = await db.query.bots.findFirst({
     where: (bots, { and, eq }) =>

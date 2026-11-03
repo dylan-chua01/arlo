@@ -1,4 +1,3 @@
-import { UserButton } from "@clerk/nextjs"
 import { formatDistanceToNowStrict } from "date-fns"
 
 import { ChatMenuButton } from "@/components/chat-menu-button"
@@ -17,6 +16,7 @@ import {
   SidebarMenuItem,
   SidebarRail,
 } from "@/components/ui/sidebar"
+import { UserMenu } from "@/components/user-menu"
 import { getBots } from "@/queries/bots"
 import { getChats } from "@/queries/chats"
 
@@ -76,20 +76,7 @@ export async function AppSidebar() {
               render={<div />}
               className="has-focus-visible:ring-2"
             >
-              <UserButton
-                showName
-                appearance={{
-                  elements: {
-                    rootBox: "min-w-0!",
-                    userButtonTrigger:
-                      "static! min-w-0! after:absolute after:inset-0 focus:shadow-none!",
-                    userButtonBox: "min-w-0! flex-row-reverse! gap-2!",
-                    userButtonAvatarBox: "size-8! rounded-lg!",
-                    userButtonOuterIdentifier:
-                      "truncate! ps-0! text-sm! font-medium! text-inherit! group-data-[collapsible=icon]:hidden!",
-                  },
-                }}
-              />
+              <UserMenu />
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>

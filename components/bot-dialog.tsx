@@ -8,7 +8,7 @@ import { useRouter } from "next/navigation"
 import { Controller, useForm, useWatch } from "react-hook-form"
 
 import { createBot, deleteBot, updateBot } from "@/actions/bot"
-import { useUpgradeToast } from "@/hooks/use-upgrade-toast"
+import { useUpgradeToast, useUsageLimitToast } from "@/hooks/use-upgrade-toast"
 import { ChatAvatar } from "@/components/chat-avatar"
 import {
   AlertDialog,
@@ -107,6 +107,7 @@ function BotDialog({
   const setOpen = onOpenChange ?? setUncontrolledOpen
 
   const showUpgradeToast = useUpgradeToast()
+  const showUsageLimitToast = useUsageLimitToast()
 
   const form = useForm({
     resolver: zodResolver(insertBotSchema),
@@ -125,6 +126,10 @@ function BotDialog({
     if (!result.success) {
       if ("upgradeRequired" in result) {
         showUpgradeToast("Couldn't create bot")
+        return
+      }
+      if ("usageLimitReached" in result) {
+        showUsageLimitToast("Couldn't create bot")
         return
       }
       toast.add({

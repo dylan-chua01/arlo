@@ -1,12 +1,28 @@
 import { neon } from "@neon/ai-sdk-provider"
 import { chat } from "@trigger.dev/sdk/ai"
-import { generateText, Output, stepCountIs } from "ai"
+import { generateText, Output, stepCountIs, type LanguageModelUsage } from "ai"
 import { z } from "zod"
 
+import { UPGRADE_ERROR, USAGE_LIMIT_ERROR } from "@/lib/billing"
+import { CHAT_AGENT_VERSION } from "@/lib/chat-agent"
 import { db } from "@/lib/db"
 import type { Bot } from "@/lib/db/schema"
+import { getUsage, isSpent, recordAiUsage } from "@/lib/usage"
 
 import { readMemory, sandboxContext, tools, type ChatUIMessage } from "./tools"
+
+const CHAT_MODEL = "claude-sonnet-5"
+const ROUTER_MODEL = "claude-haiku-5-5"
+
+// The user whose plan pays for the chat's turns
+async function getChatOwner(chatId: string) {
+  const chat = await db.query.chats.findFirst({
+    where: (chats, { eq }) => eq(chats.id, chatId),
+    columns: { userId: true },
+  })
+  if (!chat) throw new Error(`Chat ${chatId} doesn't exist`)
+  return chat.userId
+}
 
 // No Clerk session in a run; the server actions already checked ownership
 async function getChatBot(chatId: string, botId?: string) {
@@ -34,7 +50,13 @@ function excerpt(message: ChatUIMessage, max: number) {
 
 // Hands a group message to the bot whose job fits it best. The bot the person
 // picked keeps it unless another's job fits clearly better.
-async function routeMessage(picked: Bot, bots: Bot[], signal: AbortSignal) {
+async function routeMessage(
+  picked: Bot,
+  bots: Bot[],
+  signal: AbortSignal,
+  // Records the routing call against the chat owner's allowance
+  onUsage: (usage: LanguageModelUsage) => Promise<unknown>
+) {
   const history = chat.history.all() as ChatUIMessage[]
   const latest = history.at(-1)
   if (latest?.role !== "user") return picked
@@ -54,8 +76,8 @@ async function routeMessage(picked: Bot, bots: Bot[], signal: AbortSignal) {
   const lastReply = history.findLast((message) => message.role === "assistant")
 
   try {
-    const { output } = await generateText({
-      model: neon("claude-haiku-5-5"),
+    const { output, usage } = await generateText({
+      model: neon(ROUTER_MODEL),
       output: Output.choice({ options: bots.map((bot) => bot.id) }),
       system: [
         `You route each message in a group chat to the one bot that should answer it. Answer with that bot's id.`,
@@ -79,6 +101,7 @@ async function routeMessage(picked: Bot, bots: Bot[], signal: AbortSignal) {
         .join("\n\n"),
       abortSignal: signal,
     })
+    await onUsage(usage)
     return bots.find((bot) => bot.id === output) ?? picked
   } catch (error) {
     // Routing is a nicety; the picked bot can always answer
@@ -157,11 +180,25 @@ function buildSystemPrompt(
 export const chatAgent = chat
   .withUIMessage<ChatUIMessage>()
   // The bot a group chat's message is for, picked in the composer each turn
-  .withClientData({ schema: z.object({ botId: z.string().optional() }) })
+  .withClientData({
+    schema: z.object({
+      botId: z.string().optional(),
+      // The CHAT_AGENT_VERSION the client was built with
+      agentVersion: z.number().optional(),
+    }),
+  })
   .agent({
     id: "chat",
     // Declared here too so screenshots reach the model as images on later turns
     tools,
+    // A newer client means this run is on stale code, so hand the chat to the
+    // latest version, which answers the same message. Only newer: an older
+    // client would land back on this version and loop.
+    onTurnStart: async ({ clientData }) => {
+      if ((clientData?.agentVersion ?? 0) > CHAT_AGENT_VERSION) {
+        chat.requestUpgrade()
+      }
+    },
     onBoot: async ({ chatId, clientData }) => {
       const { bot } = await getChatBot(chatId, clientData?.botId)
       sandboxContext.init({ sandboxId: bot.sandboxId })
@@ -174,10 +211,30 @@ export const chatAgent = chat
       signal,
       streamText,
     }) => {
+      // Every turn runs a model and can use a sandbox, so it needs Pro and
+      // both allowances. A thrown message reaches the client as the turn's error.
+      const userId = await getChatOwner(chatId)
+      const usage = await getUsage(userId)
+      if (!usage) throw new Error(UPGRADE_ERROR)
+      if (isSpent(usage, "ai") || isSpent(usage, "sandbox")) {
+        throw new Error(USAGE_LIMIT_ERROR)
+      }
+      // What this turn may still spend; checked between steps so a long tool
+      // loop stops once the allowance runs out
+      let aiBudget = usage.ai.limit - usage.ai.used
+
       // Read every turn so edits to the bot apply to the next reply
       const { bot: picked, bots } = await getChatBot(chatId, clientData?.botId)
       const bot =
-        bots.length > 1 ? await routeMessage(picked, bots, signal) : picked
+        bots.length > 1
+          ? await routeMessage(picked, bots, signal, async (routerUsage) => {
+              aiBudget -= await recordAiUsage(
+                { userId, chatId, botId: picked.id },
+                ROUTER_MODEL,
+                routerUsage
+              )
+            })
+          : picked
       const handedFrom = bot.id === picked.id ? undefined : picked
       // Each turn works in the sandbox of the bot that answers it
       sandboxContext.sandboxId = bot.sandboxId
@@ -193,13 +250,21 @@ export const chatAgent = chat
       })
 
       return streamText({
-        model: neon("claude-sonnet-5"),
+        model: neon(CHAT_MODEL),
         system: buildSystemPrompt(bot, bots, memory, handedFrom),
         messages,
         tools,
         abortSignal: signal,
-        // Room for a long run of look-act-look on the desktop
-        stopWhen: stepCountIs(50),
+        // Each step is its own model call, so each is written to the ledger
+        onStepFinish: async ({ usage: stepUsage }) => {
+          aiBudget -= await recordAiUsage(
+            { userId, chatId, botId: bot.id },
+            CHAT_MODEL,
+            stepUsage
+          )
+        },
+        // Room for a long run of look-act-look on the desktop, within the allowance
+        stopWhen: [stepCountIs(50), () => aiBudget <= 0],
       })
     },
   })
