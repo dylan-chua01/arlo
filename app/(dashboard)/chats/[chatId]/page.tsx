@@ -3,7 +3,6 @@ import { notFound } from "next/navigation"
 
 import { Chat } from "@/components/chat"
 import { ChatHeader } from "@/components/chat-header"
-import { DeleteGroupChatButton } from "@/components/delete-group-chat-button"
 import {
   DesktopPanel,
   DesktopPanelProvider,
@@ -14,6 +13,7 @@ import {
   ResizablePanel,
   ResizablePanelGroup,
 } from "@/components/ui/resizable"
+import { getBots } from "@/queries/bots"
 import { getChat } from "@/queries/chats"
 
 export default async function Page(props: PageProps<"/chats/[chatId]">) {
@@ -28,11 +28,22 @@ export default async function Page(props: PageProps<"/chats/[chatId]">) {
 
   // Several sandboxes, so no one desktop to show
   if (chat.kind === "group") {
+    const bots = await getBots()
+
     return (
       <div className="flex h-svh flex-col">
-        <ChatHeader name={name} avatars={avatars}>
-          <DeleteGroupChatButton chatId={chat.id} name={name} />
-        </ChatHeader>
+        <ChatHeader
+          name={name}
+          avatars={avatars}
+          group={{
+            chat: {
+              id: chat.id,
+              name: chat.name,
+              botIds: chat.bots.map((bot) => bot.id),
+            },
+            bots,
+          }}
+        />
         <Chat key={chat.id} id={chat.id} bots={chat.bots} />
       </div>
     )

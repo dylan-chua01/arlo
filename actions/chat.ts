@@ -7,7 +7,7 @@ import {
   defaultStorage,
   type ChatStartSessionParams,
 } from "@trigger.dev/sdk/ai"
-import { and, eq, inArray } from "drizzle-orm"
+import { and, eq, inArray, notInArray } from "drizzle-orm"
 import { revalidatePath } from "next/cache"
 import { nanoid } from "nanoid"
 import { z } from "zod"
@@ -93,6 +93,72 @@ export async function createGroupChat(
       .values({ id: chatId, userId, kind: "group", name })
       .returning(),
     db.insert(chatMembers).values(botIds.map((botId) => ({ chatId, botId }))),
+  ])
+
+  revalidatePath("/", "layout")
+
+  return { success: true, chat }
+}
+
+type UpdateGroupChatResult =
+  { success: true; chat: Chat } | { success: false; error: string }
+
+export async function updateGroupChat(
+  chatId: string,
+  input: InsertGroupChat
+): Promise<UpdateGroupChatResult> {
+  const { isAuthenticated, userId } = await auth()
+  if (!isAuthenticated) {
+    return { success: false, error: "You need to be signed in." }
+  }
+
+  const parsed = insertGroupChatSchema.safeParse(input)
+  if (!parsed.success) {
+    return { success: false, error: z.prettifyError(parsed.error) }
+  }
+
+  const { name } = parsed.data
+  const botIds = [...new Set(parsed.data.botIds)]
+
+  // Only the user's own bots can join
+  const owned = await db
+    .select({ id: bots.id })
+    .from(bots)
+    .where(and(eq(bots.userId, userId), inArray(bots.id, botIds)))
+  if (owned.length !== botIds.length) {
+    return { success: false, error: "One of those bots doesn't exist." }
+  }
+
+  // Scoped to the user's groups so nobody can edit a chat that isn't theirs
+  const [chat] = await db
+    .update(chats)
+    .set({ name })
+    .where(
+      and(
+        eq(chats.id, chatId),
+        eq(chats.userId, userId),
+        eq(chats.kind, "group")
+      )
+    )
+    .returning()
+  if (!chat) {
+    return { success: false, error: "That group chat doesn't exist." }
+  }
+
+  // Bots that stay keep their join date, so the member order holds
+  await db.batch([
+    db
+      .delete(chatMembers)
+      .where(
+        and(
+          eq(chatMembers.chatId, chatId),
+          notInArray(chatMembers.botId, botIds)
+        )
+      ),
+    db
+      .insert(chatMembers)
+      .values(botIds.map((botId) => ({ chatId, botId })))
+      .onConflictDoNothing(),
   ])
 
   revalidatePath("/", "layout")
