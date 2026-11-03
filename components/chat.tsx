@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useId, useRef, useState } from "react"
 import { useChat } from "@ai-sdk/react"
 import { ArrowRightIcon } from "lucide-react"
 import type { TriggerChatTransport } from "@trigger.dev/sdk/chat"
@@ -31,6 +31,7 @@ import {
   PromptInput,
   PromptInputBody,
   PromptInputFooter,
+  PromptInputProvider,
   PromptInputSelect,
   PromptInputSelectContent,
   PromptInputSelectItem,
@@ -39,6 +40,7 @@ import {
   PromptInputSubmit,
   PromptInputTextarea,
   PromptInputTools,
+  usePromptInputController,
   type PromptInputMessage,
 } from "@/components/ai-elements/prompt-input"
 import { Terminal } from "@/components/ai-elements/terminal"
@@ -49,6 +51,7 @@ import {
   ToolInput,
   ToolOutput,
 } from "@/components/ai-elements/tool"
+import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
 import type { Bot } from "@/lib/db/schema"
 import type { chatAgent } from "@/trigger/chat"
@@ -93,6 +96,7 @@ export function Chat({
       // The transcript is written by the agent, so it carries its tool parts
       initialMessages={messages as ChatUIMessage[]}
       bots={bots}
+      botId={botId}
       onHandoff={setBotId}
       botPicker={
         bots &&
@@ -107,6 +111,7 @@ function ChatView({
   transport,
   initialMessages,
   bots,
+  botId,
   onHandoff,
   botPicker,
 }: {
@@ -114,7 +119,9 @@ function ChatView({
   transport: TriggerChatTransport
   initialMessages: ChatUIMessage[]
   bots?: ChatBot[]
-  // Called with the bot a message was handed to, so the next one goes to it
+  // The bot picked in the composer, recorded on each message sent to it
+  botId?: string
+  // Picks the bot the next message goes to: after a handoff, or an @ tag
   onHandoff?: (botId: string) => void
   botPicker?: React.ReactNode
 }) {
@@ -130,7 +137,7 @@ function ChatView({
 
   function handleSubmit({ text }: PromptInputMessage) {
     if (!text.trim()) return
-    sendMessage({ text })
+    sendMessage({ text, metadata: botId ? { botId } : undefined })
   }
 
   return (
@@ -146,12 +153,33 @@ function ChatView({
             messages.map((message) => {
               // Only group chats pass bots; a direct chat's header shows its bot
               if (!bots || message.role !== "assistant") {
+                const to =
+                  message.role === "user" &&
+                  bots?.find((bot) => bot.id === message.metadata?.botId)
                 return (
                   <Message from={message.role} key={message.id}>
                     <MessageContent>
-                      {message.parts.map((part, i) => (
-                        <MessagePart key={i} part={part} />
-                      ))}
+                      {to ? (
+                        // Plain text, so the tag sits inline in its first line
+                        <p className="wrap-break-word whitespace-pre-wrap">
+                          <Badge
+                            variant="outline"
+                            className="me-1.5 max-w-32 bg-background align-middle"
+                          >
+                            <ChatAvatar seed={to.avatar} className="size-3.5" />
+                            <span className="truncate">{to.name}</span>
+                          </Badge>
+                          {message.parts
+                            .flatMap((part) =>
+                              part.type === "text" ? [part.text] : []
+                            )
+                            .join("\n\n")}
+                        </p>
+                      ) : (
+                        message.parts.map((part, i) => (
+                          <MessagePart key={i} part={part} />
+                        ))
+                      )}
                     </MessageContent>
                   </Message>
                 )
@@ -192,17 +220,139 @@ function ChatView({
       </Conversation>
 
       <div className="mx-auto w-full max-w-3xl p-4 pt-0">
-        <PromptInput onSubmit={handleSubmit}>
-          <PromptInputBody>
-            <PromptInputTextarea placeholder="Send a message…" />
-          </PromptInputBody>
-          <PromptInputFooter className={botPicker ? undefined : "justify-end"}>
-            {botPicker && <PromptInputTools>{botPicker}</PromptInputTools>}
-            <PromptInputSubmit status={status} onStop={stop} />
-          </PromptInputFooter>
-        </PromptInput>
+        {/* Controls the text so typing @ can tag a bot */}
+        <PromptInputProvider>
+          <PromptInput onSubmit={handleSubmit}>
+            <PromptInputBody>
+              {bots && onHandoff ? (
+                <MentionTextarea bots={bots} onMention={onHandoff} />
+              ) : (
+                <PromptInputTextarea placeholder="Send a message…" />
+              )}
+            </PromptInputBody>
+            <PromptInputFooter
+              className={botPicker ? undefined : "justify-end"}
+            >
+              {botPicker && <PromptInputTools>{botPicker}</PromptInputTools>}
+              <PromptInputSubmit status={status} onStop={stop} />
+            </PromptInputFooter>
+          </PromptInput>
+        </PromptInputProvider>
       </div>
     </div>
+  )
+}
+
+type Mention = { start: number; end: number; query: string }
+
+// An "@" being typed right before the caret, at the start or after a space
+function findMention(textarea: HTMLTextAreaElement): Mention | null {
+  const end = textarea.selectionEnd
+  const match = /(?:^|\s)@([^\s@]*)$/.exec(textarea.value.slice(0, end))
+  if (!match) return null
+  return { start: end - match[1].length - 1, end, query: match[1] }
+}
+
+// Typing @ suggests the chat's bots. Picking one tags it as the bot the
+// message is for, and the @ text is removed, since the picker shows the tag.
+function MentionTextarea({
+  bots,
+  onMention,
+}: {
+  bots: ChatBot[]
+  onMention: (botId: string) => void
+}) {
+  const { textInput } = usePromptInputController()
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const listId = useId()
+  const [mention, setMention] = useState<Mention | null>(null)
+  const [active, setActive] = useState(0)
+
+  const query = mention?.query.toLowerCase()
+  const matches =
+    query === undefined
+      ? []
+      : bots.filter((bot) => bot.name.toLowerCase().includes(query))
+  const open = matches.length > 0
+
+  function track(textarea: HTMLTextAreaElement) {
+    const next = findMention(textarea)
+    if (next?.query !== mention?.query) setActive(0)
+    setMention(next)
+  }
+
+  function pick(bot: ChatBot) {
+    if (!mention) return
+    const { value } = textInput
+    // Drop the @query and the space after it, if any
+    const rest = value.slice(mention.end).replace(/^ /, "")
+    textInput.setInput(value.slice(0, mention.start) + rest)
+    setMention(null)
+    onMention(bot.id)
+    // Put the caret back where the tag was, after React applies the new value
+    requestAnimationFrame(() => {
+      textareaRef.current?.focus()
+      textareaRef.current?.setSelectionRange(mention.start, mention.start)
+    })
+  }
+
+  return (
+    <>
+      {open && (
+        <div
+          id={listId}
+          role="listbox"
+          aria-label="Bots"
+          className="absolute inset-x-2 bottom-full z-10 mb-2 flex flex-col gap-0.5 rounded-lg border bg-popover p-1 text-popover-foreground shadow-md sm:right-auto sm:w-56"
+        >
+          {matches.map((bot, i) => (
+            <div
+              key={bot.id}
+              id={`${listId}-${bot.id}`}
+              role="option"
+              aria-selected={i === active}
+              className="flex cursor-default items-center gap-2 rounded-md px-2 py-1.5 text-sm aria-selected:bg-accent aria-selected:text-accent-foreground"
+              // Keep focus in the textarea
+              onMouseDown={(e) => e.preventDefault()}
+              onMouseEnter={() => setActive(i)}
+              onClick={() => pick(bot)}
+            >
+              <ChatAvatar seed={bot.avatar} className="size-5" />
+              <span className="truncate">{bot.name}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      <PromptInputTextarea
+        ref={textareaRef}
+        placeholder="Send a message… Type @ to tag a bot"
+        role="combobox"
+        aria-expanded={open}
+        aria-controls={open ? listId : undefined}
+        aria-autocomplete="list"
+        aria-activedescendant={
+          open ? `${listId}-${matches[active]?.id}` : undefined
+        }
+        onChange={(e) => track(e.currentTarget)}
+        onSelect={(e) => track(e.currentTarget)}
+        onBlur={() => setMention(null)}
+        onKeyDown={(e) => {
+          if (!open || e.nativeEvent.isComposing) return
+          if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+            e.preventDefault()
+            const step = e.key === "ArrowDown" ? 1 : -1
+            setActive((i) => (i + step + matches.length) % matches.length)
+          } else if (e.key === "Enter" || e.key === "Tab") {
+            // Preventing default also stops Enter from sending the message
+            e.preventDefault()
+            pick(matches[active])
+          } else if (e.key === "Escape") {
+            e.preventDefault()
+            setMention(null)
+          }
+        }}
+      />
+    </>
   )
 }
 

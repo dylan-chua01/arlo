@@ -277,8 +277,9 @@ export const tools = {
   ),
 }
 
-// For group chats: the bot that wrote an assistant message, and the bot the
-// person addressed when it was handed over automatically
+// For group chats. On a user message, botId is the bot it was addressed to.
+// On an assistant message, it's the bot that wrote it, and handedFrom is the
+// bot the person addressed when it was handed over automatically.
 export type ChatUIMessage = UIMessage<
   { botId?: string; handedFrom?: string },
   UIDataTypes,
