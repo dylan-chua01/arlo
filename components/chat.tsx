@@ -2,6 +2,7 @@
 
 import { useId, useRef, useState } from "react"
 import { useChat } from "@ai-sdk/react"
+import { useAuth } from "@clerk/nextjs"
 import { ArrowRightIcon } from "lucide-react"
 import type { TriggerChatTransport } from "@trigger.dev/sdk/chat"
 import {
@@ -53,6 +54,8 @@ import {
 } from "@/components/ai-elements/tool"
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
+import { useUpgradeToast } from "@/hooks/use-upgrade-toast"
+import { BOTS, SANDBOXES, UPGRADE_ERROR } from "@/lib/billing"
 import type { Bot } from "@/lib/db/schema"
 import type { chatAgent } from "@/trigger/chat"
 import type { ChatUIMessage } from "@/trigger/tools"
@@ -125,6 +128,8 @@ function ChatView({
   onHandoff?: (botId: string) => void
   botPicker?: React.ReactNode
 }) {
+  const { has } = useAuth()
+  const showUpgradeToast = useUpgradeToast()
   const { messages, sendMessage, status, stop } = useChat<ChatUIMessage>({
     id,
     transport,
@@ -137,6 +142,12 @@ function ChatView({
 
   function handleSubmit({ text }: PromptInputMessage) {
     if (!text.trim()) return
+    // The session actions enforce this too, but their errors don't reach the UI
+    if (!has?.({ feature: BOTS }) || !has?.({ feature: SANDBOXES })) {
+      showUpgradeToast("Couldn't send message")
+      // PromptInput keeps the draft when onSubmit throws
+      throw new Error(UPGRADE_ERROR)
+    }
     sendMessage({ text, metadata: botId ? { botId } : undefined })
   }
 

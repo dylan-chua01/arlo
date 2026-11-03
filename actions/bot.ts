@@ -6,6 +6,12 @@ import { revalidatePath } from "next/cache"
 import { nanoid } from "nanoid"
 import { z } from "zod"
 
+import {
+  BOTS,
+  SANDBOXES,
+  upgradeRequired,
+  type UpgradeRequired,
+} from "@/lib/billing"
 import { daytona, MEMORY_PATH } from "@/lib/daytona"
 import { db } from "@/lib/db"
 import {
@@ -19,12 +25,18 @@ import {
 } from "@/lib/db/schema"
 
 type CreateBotResult =
-  { success: true; bot: Bot; chat: Chat } | { success: false; error: string }
+  | { success: true; bot: Bot; chat: Chat }
+  | { success: false; error: string }
+  | UpgradeRequired
 
 export async function createBot(input: InsertBot): Promise<CreateBotResult> {
-  const { isAuthenticated, userId } = await auth()
+  const { isAuthenticated, userId, has } = await auth()
   if (!isAuthenticated) {
     return { success: false, error: "You need to be signed in." }
+  }
+  // Every bot comes with a sandbox, so it needs both
+  if (!has({ feature: BOTS }) || !has({ feature: SANDBOXES })) {
+    return upgradeRequired
   }
 
   const parsed = insertBotSchema.safeParse(input)

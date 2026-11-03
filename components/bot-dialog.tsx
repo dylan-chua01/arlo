@@ -8,6 +8,7 @@ import { useRouter } from "next/navigation"
 import { Controller, useForm, useWatch } from "react-hook-form"
 
 import { createBot, deleteBot, updateBot } from "@/actions/bot"
+import { useUpgradeToast } from "@/hooks/use-upgrade-toast"
 import { ChatAvatar } from "@/components/chat-avatar"
 import {
   AlertDialog,
@@ -105,6 +106,8 @@ function BotDialog({
   const open = openProp ?? uncontrolledOpen
   const setOpen = onOpenChange ?? setUncontrolledOpen
 
+  const showUpgradeToast = useUpgradeToast()
+
   const form = useForm({
     resolver: zodResolver(insertBotSchema),
     defaultValues: getDefaultValues(bot),
@@ -120,6 +123,10 @@ function BotDialog({
       : await createBot(values)
 
     if (!result.success) {
+      if ("upgradeRequired" in result) {
+        showUpgradeToast("Couldn't create bot")
+        return
+      }
       toast.add({
         type: "error",
         title: bot ? "Couldn't save bot" : "Couldn't create bot",

@@ -2,6 +2,7 @@
 
 import { auth } from "@clerk/nextjs/server"
 
+import { SANDBOXES, upgradeRequired, type UpgradeRequired } from "@/lib/billing"
 import { daytona } from "@/lib/daytona"
 import { db } from "@/lib/db"
 
@@ -12,15 +13,20 @@ const NOVNC_PORT = 6080
 const URL_TTL_SECONDS = 60 * 60 * 6
 
 type GetDesktopUrlResult =
-  { success: true; url: string } | { success: false; error: string }
+  | { success: true; url: string }
+  | { success: false; error: string }
+  | UpgradeRequired
 
 // A browser-loadable noVNC URL for the bot's sandbox desktop, waking both if needed
 export async function getDesktopUrl(
   botId: string
 ): Promise<GetDesktopUrlResult> {
-  const { isAuthenticated, userId } = await auth()
+  const { isAuthenticated, userId, has } = await auth()
   if (!isAuthenticated) {
     return { success: false, error: "You need to be signed in." }
+  }
+  if (!has({ feature: SANDBOXES })) {
+    return upgradeRequired
   }
 
   const bot = await db.query.bots.findFirst({

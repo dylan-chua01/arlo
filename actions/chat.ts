@@ -12,6 +12,7 @@ import { revalidatePath } from "next/cache"
 import { nanoid } from "nanoid"
 import { z } from "zod"
 
+import { BOTS, SANDBOXES, UPGRADE_ERROR } from "@/lib/billing"
 import { db } from "@/lib/db"
 import {
   bots,
@@ -33,17 +34,29 @@ async function assertChatOwner(chatId: string) {
   if (!owned) throw new Error("That chat doesn't exist.")
 }
 
+// Each reply runs a bot in its sandbox. The client checks first so it can
+// show the upgrade toast; this is the enforcement.
+async function assertCanChat() {
+  const { has } = await auth()
+  if (!has({ feature: BOTS }) || !has({ feature: SANDBOXES })) {
+    throw new Error(UPGRADE_ERROR)
+  }
+}
+
 // Creates the session and its first run; idempotent per chat id
 export async function startChatSession(
   params: ChatStartSessionParams<typeof chatAgent>
 ) {
   await assertChatOwner(params.chatId)
+  await assertCanChat()
   return start(params)
 }
 
-// The transport calls this to refresh an expired token
+// The transport calls this to refresh an expired token, so a lapsed plan
+// stops sending within the token's hour
 export async function mintChatAccessToken(chatId: string) {
   await assertChatOwner(chatId)
+  await assertCanChat()
   return triggerAuth.createPublicToken({
     scopes: { read: { sessions: chatId }, write: { sessions: chatId } },
     expirationTime: "1h",

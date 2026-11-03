@@ -31,6 +31,7 @@ import {
 } from "@/components/ui/empty"
 import { ResizablePanel } from "@/components/ui/resizable"
 import { Spinner } from "@/components/ui/spinner"
+import { useUpgradeToast } from "@/hooks/use-upgrade-toast"
 import type { Bot } from "@/lib/db/schema"
 
 const DesktopPanelContext = createContext<{
@@ -84,11 +85,15 @@ export function DesktopPanel({
   const [panelSlot, setPanelSlot] = useState<HTMLDivElement | null>(null)
   const [dialogSlot, setDialogSlot] = useState<HTMLDivElement | null>(null)
   const frameRef = useRef<HTMLIFrameElement>(null)
+  const showUpgradeToast = useUpgradeToast()
 
   async function load() {
     if (!bot) return
     setDesktop({ status: "loading" })
     const result = await getDesktopUrl(bot.id)
+    if (!result.success && "upgradeRequired" in result) {
+      showUpgradeToast("Couldn't open the desktop")
+    }
     setDesktop(
       result.success
         ? { status: "ready", url: result.url, key: Date.now() }
