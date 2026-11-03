@@ -1,6 +1,6 @@
 import { neon } from "@neon/ai-sdk-provider"
 import { chat } from "@trigger.dev/sdk/ai"
-import { stepCountIs } from "ai"
+import { generateText, Output, stepCountIs } from "ai"
 import { z } from "zod"
 
 import { db } from "@/lib/db"
@@ -23,7 +23,72 @@ async function getChatBot(chatId: string, botId?: string) {
   return { bot, bots }
 }
 
-function buildSystemPrompt(bot: Bot, bots: Bot[]) {
+// The router only needs the gist of each message
+function excerpt(message: ChatUIMessage, max: number) {
+  const text = message.parts
+    .flatMap((part) => (part.type === "text" ? [part.text] : []))
+    .join(" ")
+    .trim()
+  return text.length > max ? `${text.slice(0, max)}…` : text
+}
+
+// Hands a group message to the bot whose job fits it best. The bot the person
+// picked keeps it unless another's job fits clearly better.
+async function routeMessage(picked: Bot, bots: Bot[], signal: AbortSignal) {
+  const history = chat.history.all() as ChatUIMessage[]
+  const latest = history.at(-1)
+  if (latest?.role !== "user") return picked
+
+  const nameOf = (botId?: string) =>
+    bots.find((bot) => bot.id === botId)?.name ?? "A bot"
+  const recent = history
+    .slice(-7, -1)
+    .map((message) => {
+      const text = excerpt(message, 500)
+      if (!text) return null
+      const speaker =
+        message.role === "user" ? "Person" : nameOf(message.metadata?.botId)
+      return `${speaker}: ${text}`
+    })
+    .filter(Boolean)
+  const lastReply = history.findLast((message) => message.role === "assistant")
+
+  try {
+    const { output } = await generateText({
+      model: neon("claude-haiku-5-5"),
+      output: Output.choice({ options: bots.map((bot) => bot.id) }),
+      system: [
+        `You route each message in a group chat to the one bot that should answer it. Answer with that bot's id.`,
+        [
+          `The bots:`,
+          ...bots.map((bot) => `- ${bot.name}, id ${bot.id}. Job: ${bot.job}.`),
+        ].join("\n"),
+        [
+          `Rules, in order:`,
+          `1. If the message names a bot or asks a specific bot to do it, pick that bot.`,
+          `2. A follow-up on work a bot is in the middle of stays with that bot, because the work lives in its sandbox.${lastReply ? ` The last reply was from ${nameOf(lastReply.metadata?.botId)}.` : ""}`,
+          `3. Otherwise pick the bot whose job best fits what the message actually asks for. Judge by the task, not by shared keywords.`,
+          `4. The person addressed this message to ${picked.name}. Keep it with ${picked.name} unless another bot's job fits it clearly better; when it's close, or nobody's job fits, keep it with ${picked.name}.`,
+        ].join("\n"),
+      ].join("\n\n"),
+      prompt: [
+        recent.length > 0 && `Recent conversation:\n${recent.join("\n")}`,
+        `Message to route:\n${excerpt(latest, 2000) || "(no text)"}`,
+      ]
+        .filter(Boolean)
+        .join("\n\n"),
+      abortSignal: signal,
+    })
+    return bots.find((bot) => bot.id === output) ?? picked
+  } catch (error) {
+    // Routing is a nicety; the picked bot can always answer
+    if (signal.aborted) throw error
+    console.error("Failed to route message", error)
+    return picked
+  }
+}
+
+function buildSystemPrompt(bot: Bot, bots: Bot[], handedFrom?: Bot) {
   const sections = [
     `You are ${bot.name}. Your job: ${bot.job}.`,
     `You exist to help the person you're chatting with. Your job is your specialty and colors how you work, but it is not a limit: when they ask for something else, especially something you can do in your sandbox, just do it. Stay in character as ${bot.name}.`,
@@ -38,10 +103,28 @@ function buildSystemPrompt(bot: Bot, bots: Bot[]) {
     ].join("\n"),
   ]
   if (bots.length > 1) {
-    const others = bots.filter((other) => other.id !== bot.id)
     sections.push(
-      `This is a group chat with you and ${others.map((other) => other.name).join(", ")}. Each person's message is addressed to one of you; this one is for you. Earlier replies may have come from the others.`
+      [
+        `This is a group chat. You're one of several bots talking with the same person:`,
+        ...bots.map(
+          (member) =>
+            `- ${member.name}${member.id === bot.id ? " (you)" : ""}, id ${member.id}. Job: ${member.job}.`
+        ),
+      ].join("\n"),
+      [
+        `How the group works:`,
+        `- Each message goes to the bot whose job fits it best: the person addresses one, and it's handed to another automatically when that bot's job fits clearly better. This message reached you, so it's yours: answer it yourself rather than pointing the person to another bot.`,
+        `- Answer as ${bot.name}, and refer to the others by name, never by id.`,
+        `- Every bot's replies appear in the history as your own assistant messages, so they all look alike. Don't assume an earlier reply was yours.`,
+        `- Each bot has its own sandbox. Commands, files and screenshots in another bot's replies happened in their sandbox, not yours, so their files aren't in yours.`,
+        `- The person can't watch your desktop live here, so call showScreen when they'd want to see it.`,
+      ].join("\n")
     )
+    if (handedFrom) {
+      sections.push(
+        `The person addressed their latest message to ${handedFrom.name}, but it was handed to you because it fits your job better. The chat already shows the handoff, so just pick it up and answer it.`
+      )
+    }
   }
   if (bot.instructions) {
     sections.push(
@@ -73,13 +156,20 @@ export const chatAgent = chat
       streamText,
     }) => {
       // Read every turn so edits to the bot apply to the next reply
-      const { bot, bots } = await getChatBot(chatId, clientData?.botId)
-      // Each turn works in the sandbox of the bot it's for
+      const { bot: picked, bots } = await getChatBot(chatId, clientData?.botId)
+      const bot =
+        bots.length > 1 ? await routeMessage(picked, bots, signal) : picked
+      const handedFrom = bot.id === picked.id ? undefined : picked
+      // Each turn works in the sandbox of the bot that answers it
       sandboxContext.sandboxId = bot.sandboxId
+      // Tags the reply with its bot, so a group chat can show who wrote it
+      chat.setUIMessageStreamOptions({
+        messageMetadata: () => ({ botId: bot.id, handedFrom: handedFrom?.id }),
+      })
 
       return streamText({
         model: neon("claude-sonnet-5"),
-        system: buildSystemPrompt(bot, bots),
+        system: buildSystemPrompt(bot, bots, handedFrom),
         messages,
         tools,
         abortSignal: signal,

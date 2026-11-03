@@ -1,6 +1,6 @@
 import type { Sandbox } from "@daytona/sdk"
-import { chat, type InferChatUIMessageFromTools } from "@trigger.dev/sdk/ai"
-import { tool } from "ai"
+import { chat } from "@trigger.dev/sdk/ai"
+import { tool, type InferUITools, type UIDataTypes, type UIMessage } from "ai"
 import { z } from "zod"
 
 import { daytona } from "@/lib/daytona"
@@ -277,4 +277,10 @@ export const tools = {
   ),
 }
 
-export type ChatUIMessage = InferChatUIMessageFromTools<typeof tools>
+// For group chats: the bot that wrote an assistant message, and the bot the
+// person addressed when it was handed over automatically
+export type ChatUIMessage = UIMessage<
+  { botId?: string; handedFrom?: string },
+  UIDataTypes,
+  InferUITools<typeof tools>
+>

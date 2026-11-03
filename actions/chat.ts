@@ -1,7 +1,7 @@
 "use server"
 
 import { auth } from "@clerk/nextjs/server"
-import { auth as triggerAuth } from "@trigger.dev/sdk"
+import { sessions, auth as triggerAuth } from "@trigger.dev/sdk"
 import {
   chat,
   defaultStorage,
@@ -94,6 +94,46 @@ export async function createGroupChat(
       .returning(),
     db.insert(chatMembers).values(botIds.map((botId) => ({ chatId, botId }))),
   ])
+
+  revalidatePath("/", "layout")
+
+  return { success: true, chat }
+}
+
+type DeleteGroupChatResult =
+  { success: true; chat: Chat } | { success: false; error: string }
+
+export async function deleteGroupChat(
+  chatId: string
+): Promise<DeleteGroupChatResult> {
+  const { isAuthenticated, userId } = await auth()
+  if (!isAuthenticated) {
+    return { success: false, error: "You need to be signed in." }
+  }
+
+  // Direct chats go with their bot, so only groups are deleted on their own.
+  // Members cascade; the bots and their sandboxes stay.
+  const [chat] = await db
+    .delete(chats)
+    .where(
+      and(
+        eq(chats.id, chatId),
+        eq(chats.userId, userId),
+        eq(chats.kind, "group")
+      )
+    )
+    .returning()
+  if (!chat) {
+    return { success: false, error: "That group chat doesn't exist." }
+  }
+
+  // The chat is already gone, so a failure here only leaves its session open
+  // until it expires. A chat with no messages yet has no session.
+  try {
+    await sessions.close(chatId, { reason: "Chat deleted" })
+  } catch (error) {
+    console.error("Failed to close chat session", chatId, error)
+  }
 
   revalidatePath("/", "layout")
 

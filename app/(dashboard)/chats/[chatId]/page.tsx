@@ -3,6 +3,7 @@ import { notFound } from "next/navigation"
 
 import { Chat } from "@/components/chat"
 import { ChatHeader } from "@/components/chat-header"
+import { DeleteGroupChatButton } from "@/components/delete-group-chat-button"
 import {
   DesktopPanel,
   DesktopPanelProvider,
@@ -29,7 +30,9 @@ export default async function Page(props: PageProps<"/chats/[chatId]">) {
   if (chat.kind === "group") {
     return (
       <div className="flex h-svh flex-col">
-        <ChatHeader name={name} avatars={avatars} />
+        <ChatHeader name={name} avatars={avatars}>
+          <DeleteGroupChatButton chatId={chat.id} name={name} />
+        </ChatHeader>
         <Chat key={chat.id} id={chat.id} bots={chat.bots} />
       </div>
     )

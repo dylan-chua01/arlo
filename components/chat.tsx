@@ -2,6 +2,7 @@
 
 import { useState } from "react"
 import { useChat } from "@ai-sdk/react"
+import { ArrowRightIcon } from "lucide-react"
 import type { TriggerChatTransport } from "@trigger.dev/sdk/chat"
 import {
   useLoadTranscript,
@@ -91,6 +92,8 @@ export function Chat({
       transport={transport}
       // The transcript is written by the agent, so it carries its tool parts
       initialMessages={messages as ChatUIMessage[]}
+      bots={bots}
+      onHandoff={setBotId}
       botPicker={
         bots &&
         botId && <BotPicker bots={bots} value={botId} onChange={setBotId} />
@@ -103,17 +106,26 @@ function ChatView({
   id,
   transport,
   initialMessages,
+  bots,
+  onHandoff,
   botPicker,
 }: {
   id: string
   transport: TriggerChatTransport
   initialMessages: ChatUIMessage[]
+  bots?: ChatBot[]
+  // Called with the bot a message was handed to, so the next one goes to it
+  onHandoff?: (botId: string) => void
   botPicker?: React.ReactNode
 }) {
   const { messages, sendMessage, status, stop } = useChat<ChatUIMessage>({
     id,
     transport,
     messages: initialMessages,
+    onFinish: ({ message }) => {
+      const { botId, handedFrom } = message.metadata ?? {}
+      if (botId && handedFrom) onHandoff?.(botId)
+    },
   })
 
   function handleSubmit({ text }: PromptInputMessage) {
@@ -131,15 +143,49 @@ function ChatView({
               description="Send a message to begin chatting"
             />
           ) : (
-            messages.map((message) => (
-              <Message from={message.role} key={message.id}>
-                <MessageContent>
-                  {message.parts.map((part, i) => (
-                    <MessagePart key={`${message.id}-${i}`} part={part} />
-                  ))}
-                </MessageContent>
-              </Message>
-            ))
+            messages.map((message) => {
+              // Only group chats pass bots; a direct chat's header shows its bot
+              if (!bots || message.role !== "assistant") {
+                return (
+                  <Message from={message.role} key={message.id}>
+                    <MessageContent>
+                      {message.parts.map((part, i) => (
+                        <MessagePart key={i} part={part} />
+                      ))}
+                    </MessageContent>
+                  </Message>
+                )
+              }
+              const bot = bots.find((bot) => bot.id === message.metadata?.botId)
+              const from = bots.find(
+                (bot) => bot.id === message.metadata?.handedFrom
+              )
+              return (
+                <Message
+                  from={message.role}
+                  key={message.id}
+                  className="flex-row items-start gap-3"
+                >
+                  {bot ? (
+                    <ChatAvatar seed={bot.avatar} className="mt-0.5" />
+                  ) : (
+                    // A reply from before replies were tagged with their bot
+                    <div className="mt-0.5 size-8 shrink-0 rounded-full bg-muted" />
+                  )}
+                  <MessageContent>
+                    {bot && from && (
+                      <p className="flex items-center gap-1.5 text-muted-foreground">
+                        <ArrowRightIcon className="size-3.5" />
+                        Handed from {from.name} to {bot.name}
+                      </p>
+                    )}
+                    {message.parts.map((part, i) => (
+                      <MessagePart key={i} part={part} />
+                    ))}
+                  </MessageContent>
+                </Message>
+              )
+            })
           )}
         </ConversationContent>
         <ConversationScrollButton />
