@@ -9,7 +9,7 @@ import {
 } from "drizzle-orm/pg-core"
 import { createInsertSchema } from "drizzle-zod"
 import { nanoid } from "nanoid"
-import type { z } from "zod"
+import { z } from "zod"
 
 export const bots = pgTable(
   "bots",
@@ -80,6 +80,19 @@ export const chats = pgTable(
   (table) => [index("chats_user_id_idx").on(table.userId)]
 )
 
+// Fields a user fills in for a group chat; kind, userId and timestamps are set server-side
+export const insertGroupChatSchema = createInsertSchema(chats, {
+  name: (schema) =>
+    schema
+      .trim()
+      .min(1, "Give the group a name.")
+      .max(50, "Keep it under 50 characters."),
+})
+  .pick({ name: true })
+  .required({ name: true })
+  // Members live in chat_members, so the bots aren't a column of chats
+  .extend({ botIds: z.array(z.string()).min(2, "Pick at least two bots.") })
+
 export const chatMembers = pgTable(
   "chat_members",
   {
@@ -116,6 +129,7 @@ export type Bot = typeof bots.$inferSelect
 export type NewBot = typeof bots.$inferInsert
 export type InsertBot = z.infer<typeof insertBotSchema>
 export type Chat = typeof chats.$inferSelect
+export type InsertGroupChat = z.infer<typeof insertGroupChatSchema>
 export type NewChat = typeof chats.$inferInsert
 export type ChatMember = typeof chatMembers.$inferSelect
 export type NewChatMember = typeof chatMembers.$inferInsert

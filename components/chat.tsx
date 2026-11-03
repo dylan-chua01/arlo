@@ -1,5 +1,6 @@
 "use client"
 
+import { useState } from "react"
 import { useChat } from "@ai-sdk/react"
 import type { TriggerChatTransport } from "@trigger.dev/sdk/chat"
 import {
@@ -12,6 +13,7 @@ import {
   mintChatAccessToken,
   startChatSession,
 } from "@/actions/chat"
+import { ChatAvatar } from "@/components/chat-avatar"
 import {
   Conversation,
   ConversationContent,
@@ -28,8 +30,14 @@ import {
   PromptInput,
   PromptInputBody,
   PromptInputFooter,
+  PromptInputSelect,
+  PromptInputSelectContent,
+  PromptInputSelectItem,
+  PromptInputSelectTrigger,
+  PromptInputSelectValue,
   PromptInputSubmit,
   PromptInputTextarea,
+  PromptInputTools,
   type PromptInputMessage,
 } from "@/components/ai-elements/prompt-input"
 import { Terminal } from "@/components/ai-elements/terminal"
@@ -41,6 +49,7 @@ import {
   ToolOutput,
 } from "@/components/ai-elements/tool"
 import { Skeleton } from "@/components/ui/skeleton"
+import type { Bot } from "@/lib/db/schema"
 import type { chatAgent } from "@/trigger/chat"
 import type { ChatUIMessage } from "@/trigger/tools"
 
@@ -50,12 +59,24 @@ type ToolPart = Extract<Part, { type: `tool-${string}` }>
 // Image wants a GeneratedFile, but only reads base64 and mediaType
 const NO_BYTES = new Uint8Array()
 
-export function Chat({ id }: { id: string }) {
+type ChatBot = Pick<Bot, "id" | "name" | "avatar">
+
+export function Chat({
+  id,
+  bots,
+}: {
+  id: string
+  // A group chat's bots, to pick who each message is for
+  bots?: ChatBot[]
+}) {
+  const [botId, setBotId] = useState(bots?.[0]?.id)
   const transport = useTriggerChatTransport<typeof chatAgent>({
     task: "chat",
     accessToken: ({ chatId }) => mintChatAccessToken(chatId),
     startSession: ({ chatId, clientData }) =>
       startChatSession({ chatId, clientData }),
+    // Sent with every turn, so the agent answers as the picked bot
+    clientData: { botId },
   })
   const { messages, isLoading } = useLoadTranscript(id, loadChatTranscript, {
     transport,
@@ -70,6 +91,10 @@ export function Chat({ id }: { id: string }) {
       transport={transport}
       // The transcript is written by the agent, so it carries its tool parts
       initialMessages={messages as ChatUIMessage[]}
+      botPicker={
+        bots &&
+        botId && <BotPicker bots={bots} value={botId} onChange={setBotId} />
+      }
     />
   )
 }
@@ -78,10 +103,12 @@ function ChatView({
   id,
   transport,
   initialMessages,
+  botPicker,
 }: {
   id: string
   transport: TriggerChatTransport
   initialMessages: ChatUIMessage[]
+  botPicker?: React.ReactNode
 }) {
   const { messages, sendMessage, status, stop } = useChat<ChatUIMessage>({
     id,
@@ -123,12 +150,57 @@ function ChatView({
           <PromptInputBody>
             <PromptInputTextarea placeholder="Send a message…" />
           </PromptInputBody>
-          <PromptInputFooter className="justify-end">
+          <PromptInputFooter className={botPicker ? undefined : "justify-end"}>
+            {botPicker && <PromptInputTools>{botPicker}</PromptInputTools>}
             <PromptInputSubmit status={status} onStop={stop} />
           </PromptInputFooter>
         </PromptInput>
       </div>
     </div>
+  )
+}
+
+function BotPicker({
+  bots,
+  value,
+  onChange,
+}: {
+  bots: ChatBot[]
+  value: string
+  onChange: (botId: string) => void
+}) {
+  return (
+    <PromptInputSelect
+      value={value}
+      onValueChange={(value) => {
+        if (typeof value === "string") onChange(value)
+      }}
+    >
+      <PromptInputSelectTrigger aria-label="Bot to talk to">
+        <PromptInputSelectValue>
+          {(value: string) => {
+            const bot = bots.find((bot) => bot.id === value)
+            return bot && <BotOption bot={bot} />
+          }}
+        </PromptInputSelectValue>
+      </PromptInputSelectTrigger>
+      <PromptInputSelectContent alignItemWithTrigger={false} side="top">
+        {bots.map((bot) => (
+          <PromptInputSelectItem key={bot.id} value={bot.id}>
+            <BotOption bot={bot} />
+          </PromptInputSelectItem>
+        ))}
+      </PromptInputSelectContent>
+    </PromptInputSelect>
+  )
+}
+
+function BotOption({ bot }: { bot: ChatBot }) {
+  return (
+    <>
+      <ChatAvatar seed={bot.avatar} className="size-4" />
+      {bot.name}
+    </>
   )
 }
 

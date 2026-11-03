@@ -1,9 +1,9 @@
 import { UserButton } from "@clerk/nextjs"
 import { formatDistanceToNowStrict } from "date-fns"
 
-import { ChatAvatar } from "@/components/chat-avatar"
 import { ChatMenuButton } from "@/components/chat-menu-button"
 import { CreateMenu } from "@/components/create-menu"
+import { GroupChatAvatar } from "@/components/group-chat-avatar"
 import { SearchCommand } from "@/components/search-command"
 import {
   Sidebar,
@@ -17,17 +17,18 @@ import {
   SidebarMenuItem,
   SidebarRail,
 } from "@/components/ui/sidebar"
+import { getBots } from "@/queries/bots"
 import { getChats } from "@/queries/chats"
 
 export async function AppSidebar() {
-  const chats = await getChats()
+  const [chats, bots] = await Promise.all([getChats(), getBots()])
 
   return (
     <Sidebar collapsible="icon">
       <SidebarHeader>
         <SidebarMenu>
           <SidebarMenuItem className="flex justify-end">
-            <CreateMenu />
+            <CreateMenu bots={bots} />
           </SidebarMenuItem>
           <SidebarMenuItem>
             <SearchCommand chats={chats} />
@@ -42,13 +43,15 @@ export async function AppSidebar() {
                 <SidebarMenuItem key={chat.id}>
                   <ChatMenuButton
                     chatId={chat.id}
-                    tooltip={chat.name ?? chat.bot?.name}
+                    tooltip={chat.name ?? chat.bots[0]?.name}
                   >
-                    <ChatAvatar seed={chat.bot?.avatar ?? chat.id} />
+                    <GroupChatAvatar
+                      seeds={chat.bots.map((bot) => bot.avatar)}
+                    />
                     <div className="grid min-w-0 flex-1 leading-tight">
                       <div className="flex items-baseline justify-between gap-2">
                         <span className="truncate font-medium">
-                          {chat.name ?? chat.bot?.name}
+                          {chat.name ?? chat.bots[0]?.name}
                         </span>
                         <span className="shrink-0 text-xs text-muted-foreground">
                           {formatDistanceToNowStrict(chat.lastMessageAt)}

@@ -1,12 +1,26 @@
 "use server"
 
+import { auth } from "@clerk/nextjs/server"
 import { auth as triggerAuth } from "@trigger.dev/sdk"
 import {
   chat,
   defaultStorage,
   type ChatStartSessionParams,
 } from "@trigger.dev/sdk/ai"
+import { and, eq, inArray } from "drizzle-orm"
+import { revalidatePath } from "next/cache"
+import { nanoid } from "nanoid"
+import { z } from "zod"
 
+import { db } from "@/lib/db"
+import {
+  bots,
+  chatMembers,
+  chats,
+  insertGroupChatSchema,
+  type Chat,
+  type InsertGroupChat,
+} from "@/lib/db/schema"
 import { getChat } from "@/queries/chats"
 import type { chatAgent } from "@/trigger/chat"
 
@@ -42,4 +56,46 @@ export async function loadChatTranscript(params: {
 }) {
   await assertChatOwner(params.chatId)
   return load(params)
+}
+
+type CreateGroupChatResult =
+  { success: true; chat: Chat } | { success: false; error: string }
+
+export async function createGroupChat(
+  input: InsertGroupChat
+): Promise<CreateGroupChatResult> {
+  const { isAuthenticated, userId } = await auth()
+  if (!isAuthenticated) {
+    return { success: false, error: "You need to be signed in." }
+  }
+
+  const parsed = insertGroupChatSchema.safeParse(input)
+  if (!parsed.success) {
+    return { success: false, error: z.prettifyError(parsed.error) }
+  }
+
+  const { name } = parsed.data
+  const botIds = [...new Set(parsed.data.botIds)]
+
+  // Only the user's own bots can join
+  const owned = await db
+    .select({ id: bots.id })
+    .from(bots)
+    .where(and(eq(bots.userId, userId), inArray(bots.id, botIds)))
+  if (owned.length !== botIds.length) {
+    return { success: false, error: "One of those bots doesn't exist." }
+  }
+
+  const chatId = nanoid()
+  const [[chat]] = await db.batch([
+    db
+      .insert(chats)
+      .values({ id: chatId, userId, kind: "group", name })
+      .returning(),
+    db.insert(chatMembers).values(botIds.map((botId) => ({ chatId, botId }))),
+  ])
+
+  revalidatePath("/", "layout")
+
+  return { success: true, chat }
 }

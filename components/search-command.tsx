@@ -4,7 +4,7 @@ import * as React from "react"
 import { useRouter } from "next/navigation"
 import { SearchIcon } from "lucide-react"
 
-import { ChatAvatar } from "@/components/chat-avatar"
+import { GroupChatAvatar } from "@/components/group-chat-avatar"
 import { Button } from "@/components/ui/button"
 import {
   Command,
@@ -44,7 +44,7 @@ function SearchCommand({
       {/* Styled like Input, but keeps the outline button's hover */}
       <Button
         variant="outline"
-        className="h-8 w-full min-w-0 justify-start rounded-lg border border-input bg-transparent px-2.5 py-1 text-base font-normal text-muted-foreground transition-colors outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 group-data-[collapsible=icon]:hidden md:text-sm dark:bg-input/30"
+        className="h-8 w-full min-w-0 justify-start rounded-lg border border-input bg-transparent px-2.5 py-1 text-base font-normal text-muted-foreground transition-colors outline-none group-data-[collapsible=icon]:hidden focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 md:text-sm dark:bg-input/30"
         onClick={() => setOpen(true)}
       >
         <SearchIcon data-icon="inline-start" />
@@ -78,18 +78,18 @@ function SearchCommand({
                 <CommandItem
                   key={chat.id}
                   value={chat.id}
-                  keywords={[chat.name ?? chat.bot?.name ?? ""]}
+                  keywords={[chat.name ?? chat.bots[0]?.name ?? ""]}
                   onSelect={() => {
                     setOpen(false)
                     router.push(`/chats/${chat.id}`)
                   }}
                 >
-                  <ChatAvatar
-                    seed={chat.bot?.avatar ?? chat.id}
+                  <GroupChatAvatar
+                    seeds={chat.bots.map((bot) => bot.avatar)}
                     className="size-6"
                   />
                   <span className="truncate">
-                    {chat.name ?? chat.bot?.name}
+                    {chat.name ?? chat.bots[0]?.name}
                   </span>
                 </CommandItem>
               ))}

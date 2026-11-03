@@ -4,6 +4,7 @@ import * as React from "react"
 import { PlusIcon, UsersIcon } from "lucide-react"
 
 import { BotDialog } from "@/components/bot-dialog"
+import { GroupChatDialog } from "@/components/group-chat-dialog"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -11,10 +12,12 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { SidebarMenuButton } from "@/components/ui/sidebar"
+import type { Bot } from "@/lib/db/schema"
 
-function CreateMenu() {
-  // The dialog lives outside the menu so it stays mounted after the menu closes
+function CreateMenu({ bots }: { bots: Pick<Bot, "id" | "name" | "avatar">[] }) {
+  // The dialogs live outside the menu so they stay mounted after the menu closes
   const [botDialogOpen, setBotDialogOpen] = React.useState(false)
+  const [groupChatDialogOpen, setGroupChatDialogOpen] = React.useState(false)
 
   return (
     <>
@@ -35,13 +38,18 @@ function CreateMenu() {
             <PlusIcon />
             Create new bot
           </DropdownMenuItem>
-          <DropdownMenuItem>
+          <DropdownMenuItem onClick={() => setGroupChatDialogOpen(true)}>
             <UsersIcon />
             Create group chat
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
       <BotDialog open={botDialogOpen} onOpenChange={setBotDialogOpen} />
+      <GroupChatDialog
+        bots={bots}
+        open={groupChatDialogOpen}
+        onOpenChange={setGroupChatDialogOpen}
+      />
     </>
   )
 }

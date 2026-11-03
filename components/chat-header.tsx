@@ -1,22 +1,25 @@
 import { BotDialog } from "@/components/bot-dialog"
-import { ChatAvatar } from "@/components/chat-avatar"
-import { DesktopPanelTrigger } from "@/components/desktop-panel"
+import { GroupChatAvatar } from "@/components/group-chat-avatar"
 import { Button } from "@/components/ui/button"
 import type { Bot } from "@/lib/db/schema"
 
 export function ChatHeader({
   name,
-  avatar,
+  avatars,
   bot,
+  children,
 }: {
   name: string
-  avatar: string
+  // One seed per bot in the chat
+  avatars: string[]
   // Makes the title a button that opens the bot's edit dialog
   bot?: Bot | null
+  // Actions at the end of the header
+  children?: React.ReactNode
 }) {
   const title = (
     <>
-      <ChatAvatar seed={avatar} className="size-5" />
+      <GroupChatAvatar seeds={avatars} className="size-5" />
       <span className="truncate">{name}</span>
     </>
   )
@@ -34,7 +37,7 @@ export function ChatHeader({
           title
         )}
       </h1>
-      <DesktopPanelTrigger />
+      {children}
     </header>
   )
 }
