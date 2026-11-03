@@ -6,7 +6,7 @@ import { z } from "zod"
 import { db } from "@/lib/db"
 import type { Bot } from "@/lib/db/schema"
 
-import { sandboxContext, tools, type ChatUIMessage } from "./tools"
+import { readMemory, sandboxContext, tools, type ChatUIMessage } from "./tools"
 
 // No Clerk session in a run; the server actions already checked ownership
 async function getChatBot(chatId: string, botId?: string) {
@@ -88,7 +88,12 @@ async function routeMessage(picked: Bot, bots: Bot[], signal: AbortSignal) {
   }
 }
 
-function buildSystemPrompt(bot: Bot, bots: Bot[], handedFrom?: Bot) {
+function buildSystemPrompt(
+  bot: Bot,
+  bots: Bot[],
+  memory: string[] | null,
+  handedFrom?: Bot
+) {
   const sections = [
     `You are ${bot.name}. Your job: ${bot.job}.`,
     `You exist to help the person you're chatting with. Your job is your specialty and colors how you work, but it is not a limit: when they ask for something else, especially something you can do in your sandbox, just do it. Stay in character as ${bot.name}.`,
@@ -101,6 +106,19 @@ function buildSystemPrompt(bot: Bot, bots: Bot[], handedFrom?: Bot) {
       `- viewScreen is for your eyes only; the person never sees it. When they ask to see the screen or for a screenshot, call showScreen, which shows it to them in the chat.`,
       `- Carry multi-step tasks through to the end yourself, e.g. opening a browser, searching, and dismissing cookie banners or other popups along the way. Don't stop to ask unless you're truly stuck.`,
     ].join("\n"),
+    [
+      `Your memory is a list of notes that stays with you across every chat you're in, private or group. Each chat only shows its own history, so your memory is the only way something said in one chat reaches you in another.`,
+      `- When the person tells you something worth knowing later, save it with updateMemory in the same turn: facts about them, their preferences, decisions, plans, things they ask you to remember, and the state of ongoing work. Skip small talk and anything you can easily look up again.`,
+      `- Write each note as a self-contained sentence about the person, e.g. "The person's dog is named Cooper." Remove notes that are wrong or stale, or that they ask you to forget.`,
+      `- Your memory is shown to you below on every turn. Before saying you don't know or don't remember something, check it, and read the person's question in its light: a vague follow-up like "how about you?" may be asking what you remember.`,
+      `- Don't announce routine saves. Mention them only when the person asks you to remember or forget something.`,
+      `- Change your memory only with updateMemory, never with the file tools.`,
+    ].join("\n"),
+    memory === null
+      ? `Your memory couldn't be loaded this turn. If the person asks about something from before, say you can't reach your memory right now rather than that you don't know.`
+      : memory.length > 0
+        ? [`Your memory:`, ...memory.map((note) => `- ${note}`)].join("\n")
+        : `Your memory is empty so far.`,
   ]
   if (bots.length > 1) {
     sections.push(
@@ -117,6 +135,7 @@ function buildSystemPrompt(bot: Bot, bots: Bot[], handedFrom?: Bot) {
         `- Answer as ${bot.name}, and refer to the others by name, never by id.`,
         `- Every bot's replies appear in the history as your own assistant messages, so they all look alike. Don't assume an earlier reply was yours.`,
         `- Each bot has its own sandbox. Commands, files and screenshots in another bot's replies happened in their sandbox, not yours, so their files aren't in yours.`,
+        `- Your private chat with the person isn't in this history, but your memory carries what you saved from it, so use it when they bring up something they told you before. Each bot has its own memory, so you only know what you saved yourself, not what they told another bot.`,
         `- The person can't watch your desktop live here, so call showScreen when they'd want to see it.`,
       ].join("\n")
     )
@@ -162,6 +181,12 @@ export const chatAgent = chat
       const handedFrom = bot.id === picked.id ? undefined : picked
       // Each turn works in the sandbox of the bot that answers it
       sandboxContext.sandboxId = bot.sandboxId
+      const memory = await readMemory().catch((error) => {
+        if (signal.aborted) throw error
+        // A reply without memory beats no reply
+        console.error("Failed to read memory", bot.sandboxId, error)
+        return null
+      })
       // Tags the reply with its bot, so a group chat can show who wrote it
       chat.setUIMessageStreamOptions({
         messageMetadata: () => ({ botId: bot.id, handedFrom: handedFrom?.id }),
@@ -169,7 +194,7 @@ export const chatAgent = chat
 
       return streamText({
         model: neon("claude-sonnet-5"),
-        system: buildSystemPrompt(bot, bots, handedFrom),
+        system: buildSystemPrompt(bot, bots, memory, handedFrom),
         messages,
         tools,
         abortSignal: signal,

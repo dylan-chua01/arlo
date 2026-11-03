@@ -6,7 +6,7 @@ import { revalidatePath } from "next/cache"
 import { nanoid } from "nanoid"
 import { z } from "zod"
 
-import { daytona } from "@/lib/daytona"
+import { daytona, MEMORY_PATH } from "@/lib/daytona"
 import { db } from "@/lib/db"
 import {
   bots,
@@ -44,6 +44,17 @@ export async function createBot(input: InsertBot): Promise<CreateBotResult> {
     sandbox = await daytona.create({ labels: { botId, userId } })
   } catch (error) {
     console.error("Failed to create sandbox", error)
+    return { success: false, error: "Couldn't set up your bot. Try again." }
+  }
+
+  // Blank, so the bot always has a memory to read and append to
+  try {
+    await sandbox.fs.uploadFile(Buffer.from(""), MEMORY_PATH)
+  } catch (error) {
+    console.error("Failed to create memory file", sandbox.id, error)
+    await sandbox.delete().catch((deleteError) => {
+      console.error("Failed to delete sandbox", sandbox.id, deleteError)
+    })
     return { success: false, error: "Couldn't set up your bot. Try again." }
   }
 

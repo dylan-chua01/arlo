@@ -3,7 +3,7 @@ import { chat } from "@trigger.dev/sdk/ai"
 import { tool, type InferUITools, type UIDataTypes, type UIMessage } from "ai"
 import { z } from "zod"
 
-import { daytona } from "@/lib/daytona"
+import { daytona, MEMORY_PATH } from "@/lib/daytona"
 
 // Set in onBoot from the chat's bot, read by every tool
 export const sandboxContext = chat.local<{ sandboxId: string }>({
@@ -92,6 +92,27 @@ function screenTool(description: string) {
   })
 }
 
+// The memory file is a Markdown list, one note per line
+async function loadMemory(sandbox: Sandbox) {
+  // cat rather than downloadFile, so a bot made before memory reads as empty
+  const { exitCode, result } = await sandbox.process.executeCommand(
+    `cat -- ${MEMORY_PATH} 2>/dev/null || true`
+  )
+  if (exitCode !== 0) throw new Error(`Couldn't read memory: ${result}`)
+  return (
+    result
+      .split("\n")
+      // Lenient, so notes written by hand or with the file tools still count
+      .map((line) => line.replace(/^\s*[-*]\s+/, "").trim())
+      .filter((line) => line && !line.startsWith("#"))
+  )
+}
+
+// Read at the start of every turn, so the bot never has to think to look
+export async function readMemory() {
+  return loadMemory(await getSandbox())
+}
+
 const point = {
   x: z.number().int().min(0).describe("Pixels from the left of the screen"),
   y: z.number().int().min(0).describe("Pixels from the top of the screen"),
@@ -103,6 +124,35 @@ const modifiers = z
   .describe("Keys held down during the action")
 
 export const tools = {
+  updateMemory: tool({
+    description:
+      "Change your memory, the notes you see at the start of every chat you're in. Add notes worth knowing in a later chat, and remove notes that are wrong, stale, or that the person asks you to forget.",
+    inputSchema: z.object({
+      add: z
+        .array(z.string().min(1))
+        .optional()
+        .describe(
+          'New notes, each one self-contained sentence, e.g. "The person\'s dog is named Cooper."'
+        ),
+      remove: z
+        .array(z.string())
+        .optional()
+        .describe("Notes to delete, copied exactly from your memory"),
+    }),
+    execute: async ({ add, remove }) => {
+      const sandbox = await getSandbox()
+      const removed = new Set(remove)
+      const notes = [
+        ...(await loadMemory(sandbox)).filter((note) => !removed.has(note)),
+        // One line per note, or a newline would split it in two
+        ...(add ?? []).map((note) => note.replace(/\s+/g, " ").trim()),
+      ]
+      const content = notes.map((note) => `- ${note}\n`).join("")
+      await sandbox.fs.uploadFile(Buffer.from(content, "utf8"), MEMORY_PATH)
+      return { notes }
+    },
+  }),
+
   bash: tool({
     description:
       "Run a shell command in your sandbox and get its combined output and exit code. Each call starts a fresh shell, so chain dependent steps with && or pass cwd.",

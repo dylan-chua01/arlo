@@ -10,3 +10,7 @@ export const daytona = new Daytona({
   apiKey: process.env.DAYTONA_API_KEY,
   apiUrl: "https://app.daytona.io/api",
 })
+
+// Where a bot keeps what it should remember across chats. Relative, so it
+// resolves against the sandbox's working directory just like the bot's tools.
+export const MEMORY_PATH = "MEMORY.md"

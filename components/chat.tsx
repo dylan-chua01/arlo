@@ -411,6 +411,7 @@ function MessagePart({ part }: { part: Part }) {
       return <ShowScreen part={part} />
     case "tool-bash":
       return <BashCall part={part} />
+    case "tool-updateMemory":
     case "tool-readFile":
     case "tool-writeFile":
     case "tool-listFiles":
@@ -498,6 +499,10 @@ function ToolCall({ part }: { part: ToolPart }) {
 // Input is partial while it streams, so every field may be missing
 function describeTool(part: ToolPart): string {
   switch (part.type) {
+    case "tool-updateMemory":
+      return part.input?.remove?.length && !part.input.add?.length
+        ? "Forgot something"
+        : "Saved to memory"
     case "tool-bash":
       return part.input?.command ? `Ran ${part.input.command}` : "Ran a command"
     case "tool-readFile":
