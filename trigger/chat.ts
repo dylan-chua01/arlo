@@ -1,4 +1,5 @@
 import { neon } from "@neon/ai-sdk-provider"
+import * as Sentry from "@sentry/node"
 import { chat } from "@trigger.dev/sdk/ai"
 import { generateText, Output, stepCountIs, type LanguageModelUsage } from "ai"
 import { z } from "zod"
@@ -198,6 +199,23 @@ export const chatAgent = chat
       if ((clientData?.agentVersion ?? 0) > CHAT_AGENT_VERSION) {
         chat.requestUpgrade()
       }
+    },
+    // A turn that throws only ends that turn, so the run never fails and the
+    // global onFailure hook never sees it. Report it here instead, skipping
+    // the billing errors, which are expected.
+    onTurnComplete: async ({ error, chatId, turn, runId, ctx }) => {
+      if (!error) return
+      const message = error instanceof Error ? error.message : String(error)
+      if (message === UPGRADE_ERROR || message === USAGE_LIMIT_ERROR) return
+      Sentry.captureException(error, {
+        tags: {
+          "trigger.task": ctx.task.id,
+          "trigger.environment": ctx.environment.slug,
+        },
+        contexts: { chat: { chatId, turn, runId } },
+      })
+      // The run can be suspended while it waits for the next message
+      await Sentry.flush(2000)
     },
     onBoot: async ({ chatId, clientData }) => {
       const { bot } = await getChatBot(chatId, clientData?.botId)
