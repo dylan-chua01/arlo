@@ -12,4 +12,10 @@ Sentry.init({
 
   // 100% in development, 10% in production
   tracesSampleRate: process.env.NODE_ENV === "development" ? 1.0 : 0.1,
+
+  // Logs are always on in SDK v11; this also forwards console.warn and
+  // console.error, so existing failure messages show up in Sentry Logs
+  integrations: [
+    Sentry.consoleLoggingIntegration({ levels: ["warn", "error"] }),
+  ],
 })

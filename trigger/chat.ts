@@ -200,20 +200,70 @@ export const chatAgent = chat
         chat.requestUpgrade()
       }
     },
-    // A turn that throws only ends that turn, so the run never fails and the
-    // global onFailure hook never sees it. Report it here instead, skipping
-    // the billing errors, which are expected.
-    onTurnComplete: async ({ error, chatId, turn, runId, ctx }) => {
-      if (!error) return
-      const message = error instanceof Error ? error.message : String(error)
-      if (message === UPGRADE_ERROR || message === USAGE_LIMIT_ERROR) return
-      Sentry.captureException(error, {
-        tags: {
-          "trigger.task": ctx.task.id,
-          "trigger.environment": ctx.environment.slug,
-        },
-        contexts: { chat: { chatId, turn, runId } },
-      })
+    onTurnComplete: async ({
+      error,
+      chatId,
+      turn,
+      runId,
+      ctx,
+      responseMessage,
+      finishReason,
+      stopped,
+      usage,
+    }) => {
+      const message =
+        error === undefined
+          ? undefined
+          : error instanceof Error
+            ? error.message
+            : String(error)
+      // The billing errors are expected refusals, not failures
+      const blocked = message === UPGRADE_ERROR || message === USAGE_LIMIT_ERROR
+      const outcome = blocked
+        ? "blocked"
+        : error !== undefined
+          ? "errored"
+          : stopped
+            ? "stopped"
+            : "ok"
+
+      // One log per turn, with everything needed to follow it later
+      const attributes: Record<string, string | number | boolean> = {
+        chatId,
+        turn,
+        runId,
+        outcome,
+        stopped,
+      }
+      const botId = responseMessage?.metadata?.botId
+      const handedFrom = responseMessage?.metadata?.handedFrom
+      if (botId) attributes.botId = botId
+      if (handedFrom) attributes.handedFrom = handedFrom
+      if (finishReason) attributes.finishReason = finishReason
+      if (usage?.inputTokens !== undefined) {
+        attributes["gen_ai.usage.input_tokens"] = usage.inputTokens
+      }
+      if (usage?.outputTokens !== undefined) {
+        attributes["gen_ai.usage.output_tokens"] = usage.outputTokens
+      }
+      if (blocked) attributes.reason = message
+      if (outcome === "errored") {
+        Sentry.logger.error("Chat turn failed", attributes)
+      } else {
+        Sentry.logger.info("Chat turn completed", attributes)
+      }
+
+      // A turn that throws only ends that turn, so the run never fails and the
+      // global onFailure hook never sees it. Report it here instead.
+      if (outcome === "errored") {
+        Sentry.captureException(error, {
+          tags: {
+            "trigger.task": ctx.task.id,
+            "trigger.environment": ctx.environment.slug,
+          },
+          contexts: { chat: { chatId, turn, runId } },
+        })
+      }
       // The run can be suspended while it waits for the next message
       await Sentry.flush(2000)
     },

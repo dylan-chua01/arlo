@@ -1,4 +1,5 @@
 import { SandboxState } from "@daytona/sdk"
+import * as Sentry from "@sentry/node"
 import { logger, schedules } from "@trigger.dev/sdk"
 
 import { daytona } from "@/lib/daytona"
@@ -66,10 +67,22 @@ export const meterSandboxes = schedules.task({
             sandboxId: sandbox.id,
             error,
           })
+          Sentry.logger.error("Failed to stop sandbox", {
+            sandboxId: sandbox.id,
+            "user.id": userId,
+            "exception.message":
+              error instanceof Error ? error.message : String(error),
+          })
         }
       }
     }
 
     logger.log("Metered sandboxes", { seconds, charged, stopped })
+    Sentry.logger.info("Metered sandboxes", {
+      seconds,
+      charged,
+      stopped,
+      owners: shouldStop.size,
+    })
   },
 })

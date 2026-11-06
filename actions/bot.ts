@@ -1,6 +1,7 @@
 "use server"
 
 import { auth } from "@clerk/nextjs/server"
+import * as Sentry from "@sentry/nextjs"
 import { and, eq, inArray } from "drizzle-orm"
 import { revalidatePath } from "next/cache"
 import { nanoid } from "nanoid"
@@ -40,12 +41,28 @@ export async function createBot(input: InsertBot): Promise<CreateBotResult> {
   }
   // Every bot comes with a sandbox, so it needs both
   if (!has({ feature: BOTS }) || !has({ feature: SANDBOXES })) {
+    Sentry.logger.info("Bot creation blocked", {
+      "user.id": userId,
+      reason: "upgrade_required",
+    })
     return upgradeRequired
   }
   const usage = await getUsage(userId)
-  if (!usage) return upgradeRequired
+  if (!usage) {
+    Sentry.logger.info("Bot creation blocked", {
+      "user.id": userId,
+      reason: "upgrade_required",
+    })
+    return upgradeRequired
+  }
   // A new sandbox starts running, so it needs sandbox time left
-  if (isSpent(usage, "sandbox")) return usageLimitReached
+  if (isSpent(usage, "sandbox")) {
+    Sentry.logger.info("Bot creation blocked", {
+      "user.id": userId,
+      reason: "usage_limit_reached",
+    })
+    return usageLimitReached
+  }
 
   const parsed = insertBotSchema.safeParse(input)
   if (!parsed.success) {
@@ -111,6 +128,13 @@ export async function createBot(input: InsertBot): Promise<CreateBotResult> {
     throw error
   }
 
+  Sentry.logger.info("Bot created", {
+    "user.id": userId,
+    botId,
+    chatId,
+    sandboxId: sandbox.id,
+  })
+
   revalidatePath("/")
 
   return { success: true, bot, chat }
@@ -144,6 +168,8 @@ export async function updateBot(
   if (!bot) {
     return { success: false, error: "That bot doesn't exist." }
   }
+
+  Sentry.logger.info("Bot updated", { "user.id": userId, botId })
 
   revalidatePath("/", "layout")
 
@@ -192,6 +218,12 @@ export async function deleteBot(botId: string): Promise<DeleteBotResult> {
   } catch (error) {
     console.error("Failed to delete sandbox", bot.sandboxId, error)
   }
+
+  Sentry.logger.info("Bot deleted", {
+    "user.id": userId,
+    botId,
+    sandboxId: bot.sandboxId,
+  })
 
   revalidatePath("/", "layout")
 

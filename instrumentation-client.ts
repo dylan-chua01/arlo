@@ -17,7 +17,12 @@ Sentry.init({
   replaysSessionSampleRate: 0.1,
   replaysOnErrorSampleRate: 1.0,
 
-  integrations: [Sentry.replayIntegration()],
+  // Logs are always on in SDK v11; this also forwards console.warn and
+  // console.error, so existing failure messages show up in Sentry Logs
+  integrations: [
+    Sentry.replayIntegration(),
+    Sentry.consoleLoggingIntegration({ levels: ["warn", "error"] }),
+  ],
 })
 
 // Trace App Router navigations

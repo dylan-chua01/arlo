@@ -1,6 +1,7 @@
 "use server"
 
 import { auth } from "@clerk/nextjs/server"
+import * as Sentry from "@sentry/nextjs"
 
 import {
   SANDBOXES,
@@ -51,6 +52,8 @@ export async function getDesktopUrl(
 
   try {
     const sandbox = await daytona.get(bot.sandboxId)
+    const startedAt = Date.now()
+    const initialState = sandbox.state
     if (sandbox.state === "starting") {
       await sandbox.waitUntilStarted()
     } else if (sandbox.state !== "started") {
@@ -73,6 +76,14 @@ export async function getDesktopUrl(
       // Scale the remote screen to the frame; "remote" would resize the
       // sandbox's display out from under the bot's pixel coordinates
       resize: "scale",
+    })
+    Sentry.logger.info("Desktop opened", {
+      "user.id": userId,
+      botId,
+      sandboxId: bot.sandboxId,
+      // How long waking the sandbox and its desktop took
+      initialState: initialState ?? "unknown",
+      durationMs: Date.now() - startedAt,
     })
     return { success: true, url: `${url}/vnc.html?${params}` }
   } catch (error) {

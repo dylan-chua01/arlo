@@ -9,6 +9,19 @@ Sentry.init({
   // Trigger.dev already traces runs and handles uncaught errors, so skip
   // Sentry's auto-instrumentation and report failures from the hook below
   defaultIntegrations: false,
+  // Logs are always on in SDK v11; this also forwards console.warn and
+  // console.error, which Trigger.dev keeps in the run's logs too
+  integrations: [
+    Sentry.consoleLoggingIntegration({ levels: ["warn", "error"] }),
+  ],
+})
+
+// Logs are sent in batches, so send them before the worker suspends or exits
+tasks.onWait(async () => {
+  await Sentry.flush(2000)
+})
+tasks.onComplete(async () => {
+  await Sentry.flush(2000)
 })
 
 // Fires once a run has used up its retries

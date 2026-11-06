@@ -1,6 +1,7 @@
 "use server"
 
 import { auth } from "@clerk/nextjs/server"
+import * as Sentry from "@sentry/nextjs"
 import { sessions, auth as triggerAuth } from "@trigger.dev/sdk"
 import {
   chat,
@@ -39,6 +40,7 @@ async function assertChatOwner(chatId: string) {
 async function assertCanChat() {
   const { has } = await auth()
   if (!has({ feature: BOTS }) || !has({ feature: SANDBOXES })) {
+    Sentry.logger.info("Chat blocked", { reason: "upgrade_required" })
     throw new Error(UPGRADE_ERROR)
   }
 }
@@ -49,7 +51,9 @@ export async function startChatSession(
 ) {
   await assertChatOwner(params.chatId)
   await assertCanChat()
-  return start(params)
+  const session = await start(params)
+  Sentry.logger.info("Chat session started", { chatId: params.chatId })
+  return session
 }
 
 // The transport calls this to refresh an expired token, so a lapsed plan
@@ -107,6 +111,12 @@ export async function createGroupChat(
       .returning(),
     db.insert(chatMembers).values(botIds.map((botId) => ({ chatId, botId }))),
   ])
+
+  Sentry.logger.info("Group chat created", {
+    "user.id": userId,
+    chatId,
+    botCount: botIds.length,
+  })
 
   revalidatePath("/", "layout")
 
@@ -174,6 +184,12 @@ export async function updateGroupChat(
       .onConflictDoNothing(),
   ])
 
+  Sentry.logger.info("Group chat updated", {
+    "user.id": userId,
+    chatId,
+    botCount: botIds.length,
+  })
+
   revalidatePath("/", "layout")
 
   return { success: true, chat }
@@ -213,6 +229,8 @@ export async function deleteGroupChat(
   } catch (error) {
     console.error("Failed to close chat session", chatId, error)
   }
+
+  Sentry.logger.info("Group chat deleted", { "user.id": userId, chatId })
 
   revalidatePath("/", "layout")
 
