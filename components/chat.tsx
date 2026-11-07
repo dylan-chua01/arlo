@@ -3,7 +3,7 @@
 import { useId, useRef, useState } from "react"
 import { useChat } from "@ai-sdk/react"
 import { useAuth } from "@clerk/nextjs"
-import { ArrowRightIcon } from "lucide-react"
+import { ArrowRightIcon, ExternalLinkIcon } from "lucide-react"
 import type { ToolUIPart } from "ai"
 import type { TriggerChatTransport } from "@trigger.dev/sdk/chat"
 import {
@@ -54,6 +54,7 @@ import {
   ToolOutput,
 } from "@/components/ai-elements/tool"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useUpgradeToast, useUsageLimitToast } from "@/hooks/use-upgrade-toast"
 import {
@@ -169,6 +170,18 @@ function ChatView({
     sendMessage({ text, metadata: botId ? { botId } : undefined })
   }
 
+  // The bot is working until its turn ends. Streaming text shows that by
+  // itself; otherwise (thinking, running tools, between steps) show a bubble.
+  const busy = status === "submitted" || status === "streaming"
+  const last = messages.at(-1)
+  const lastPart = last?.role === "assistant" ? last.parts.at(-1) : undefined
+  const typingInReply =
+    busy &&
+    last?.role === "assistant" &&
+    !(lastPart?.type === "text" && lastPart.state === "streaming")
+  // Before the reply's first part arrives
+  const typingAlone = busy && last?.role !== "assistant"
+
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <Conversation className="min-h-0 flex-1">
@@ -179,7 +192,8 @@ function ChatView({
               description="Send a message to begin chatting"
             />
           ) : (
-            messages.map((message) => {
+            messages.map((message, index) => {
+              const typing = typingInReply && index === messages.length - 1
               // Only group chats pass bots; a direct chat's header shows its bot
               if (!bots || message.role !== "assistant") {
                 const to =
@@ -209,6 +223,7 @@ function ChatView({
                           <MessagePart key={i} part={part} />
                         ))
                       )}
+                      {typing && <TypingBubble />}
                     </MessageContent>
                   </Message>
                 )
@@ -239,10 +254,25 @@ function ChatView({
                     {message.parts.map((part, i) => (
                       <MessagePart key={i} part={part} />
                     ))}
+                    {typing && <TypingBubble />}
                   </MessageContent>
                 </Message>
               )
             })
+          )}
+          {typingAlone && (
+            <Message
+              from="assistant"
+              className={bots ? "flex-row items-start gap-3" : undefined}
+            >
+              {/* A group chat hasn't picked who answers yet */}
+              {bots && (
+                <div className="mt-0.5 size-8 shrink-0 rounded-full bg-muted" />
+              )}
+              <MessageContent>
+                <TypingBubble />
+              </MessageContent>
+            </Message>
           )}
         </ConversationContent>
         <ConversationScrollButton />
@@ -268,6 +298,24 @@ function ChatView({
           </PromptInput>
         </PromptInputProvider>
       </div>
+    </div>
+  )
+}
+
+function TypingBubble() {
+  return (
+    <div
+      role="status"
+      aria-label="Typing"
+      className="flex w-fit items-center gap-1 rounded-2xl bg-secondary px-3.5 py-3"
+    >
+      {[0, 150, 300].map((delay) => (
+        <span
+          key={delay}
+          className="size-1.5 animate-bounce rounded-full bg-muted-foreground"
+          style={{ animationDelay: `${delay}ms` }}
+        />
+      ))}
     </div>
   )
 }
@@ -463,6 +511,54 @@ function MessagePart({ part }: { part: Part }) {
 const APP_TOOL_PREFIX = "tool-COMPOSIO_"
 
 function AppToolCall({ part }: { part: ToolUIPart }) {
+  const links = getConnectLinks(part)
+  return (
+    <>
+      <AppToolCard part={part} />
+      {links.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2">
+          {links.map((link) => (
+            <Button
+              key={link.toolkit}
+              size="sm"
+              nativeButton={false}
+              render={
+                <a href={link.url} target="_blank" rel="noopener noreferrer" />
+              }
+            >
+              Connect {humanizeSlug(link.toolkit)}
+              <ExternalLinkIcon data-icon="inline-end" />
+            </Button>
+          ))}
+          <span className="text-xs text-muted-foreground">
+            Links expire after 10 minutes
+          </span>
+        </div>
+      )}
+    </>
+  )
+}
+
+// MANAGE_CONNECTIONS answers { data: { results: { gmail: { redirect_url } } } }
+// for each app that still needs connecting
+function getConnectLinks(part: ToolUIPart) {
+  if (part.type !== `${APP_TOOL_PREFIX}MANAGE_CONNECTIONS`) return []
+  if (part.state !== "output-available") return []
+  const output = part.output as {
+    data?: { results?: Record<string, { redirect_url?: unknown }> }
+  } | null
+  return Object.entries(output?.data?.results ?? {}).flatMap(
+    ([toolkit, result]) => {
+      const url = result?.redirect_url
+      // Only Composio's own https links, since the output reaches an href
+      return typeof url === "string" && url.startsWith("https://")
+        ? [{ toolkit, url }]
+        : []
+    }
+  )
+}
+
+function AppToolCard({ part }: { part: ToolUIPart }) {
   return (
     <Tool>
       <ToolHeader
@@ -495,12 +591,20 @@ function describeAppTool(part: ToolUIPart): string {
       return "Looked for the right app action"
     case "GET_TOOL_SCHEMAS":
       return "Looked up how to use an app action"
-    case "MANAGE_CONNECTIONS":
-      return "Checked your app connections"
+    case "MANAGE_CONNECTIONS": {
+      const apps = getConnectLinks(part).map((link) =>
+        humanizeSlug(link.toolkit)
+      )
+      return apps.length > 0
+        ? `Asked you to connect ${apps.join(", ")}`
+        : "Checked your app connections"
+    }
     case "MULTI_EXECUTE_TOOL": {
       const input = part.input as { tools?: { tool_slug?: unknown }[] }
       const slugs = (input?.tools ?? []).flatMap((tool) =>
-        typeof tool?.tool_slug === "string" ? [humanizeSlug(tool.tool_slug)] : []
+        typeof tool?.tool_slug === "string"
+          ? [humanizeSlug(tool.tool_slug)]
+          : []
       )
       return slugs.length > 0 ? `Used ${slugs.join(", ")}` : "Used your apps"
     }

@@ -22,6 +22,9 @@ export default defineConfig({
   },
   dirs: ["trigger"],
   build: {
+    // Daytona requires form-data (file uploads) and other packages at runtime
+    // where the bundler can't see them, so install it as a real package
+    external: ["@daytona/sdk"],
     extensions: [
       // Uploads source maps on deploy so task stack traces show original code
       esbuildPlugin(

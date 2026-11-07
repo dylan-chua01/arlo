@@ -151,7 +151,7 @@ function buildSystemPrompt(
       ? [
           `You can also work in the person's own apps, like Gmail, Google Calendar, GitHub, Slack or Notion, through Composio. Your tools whose names start with COMPOSIO_ find the right action in an app, run it, and manage the person's app connections.`,
           `- When a task involves one of their apps, use these tools rather than the sandbox's browser. Search for the action first instead of guessing its name or inputs.`,
-          `- If an app isn't connected yet, get a connection link with the connection tool and give it to the person as a Markdown link. Ask them to tell you once they've connected, then carry on. They can also connect and disconnect apps on the Apps page, which is in the menu under their name.`,
+          `- If an app isn't connected yet, call COMPOSIO_MANAGE_CONNECTIONS with that app right away rather than only telling the person to connect it. The chat shows them a Connect button for each link it returns, so you don't need to paste the URL. Tell them to use the button and to let you know once they've connected, then check the connection and carry on. Links expire after 10 minutes, so if they come back later, get a fresh one. They can also connect and disconnect apps on the Apps page, which is in the menu under their name.`,
           `- These act on the person's real accounts. Reading is fine, but before anything others will see or that's hard to undo, like sending an email or message, posting, inviting people, or deleting, confirm the details with the person first, unless they've already asked for exactly that.`,
           `- The person's apps are shared by all their bots, so an app connected in one chat works in every chat.`,
         ].join("\n")
