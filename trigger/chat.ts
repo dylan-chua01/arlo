@@ -6,6 +6,7 @@ import { z } from "zod"
 
 import { UPGRADE_ERROR, USAGE_LIMIT_ERROR } from "@/lib/billing"
 import { CHAT_AGENT_VERSION } from "@/lib/chat-agent"
+import { createAppSession } from "@/lib/composio"
 import { db } from "@/lib/db"
 import type { Bot } from "@/lib/db/schema"
 import { getUsage, isSpent, recordAiUsage } from "@/lib/usage"
@@ -112,10 +113,18 @@ async function routeMessage(
   }
 }
 
+// The person's connected apps, as tools: Composio's meta tools find the right
+// app action, run it, and start a connection when an app isn't linked yet
+async function getAppTools(userId: string) {
+  const session = await createAppSession(userId)
+  return session.tools()
+}
+
 function buildSystemPrompt(
   bot: Bot,
   bots: Bot[],
   memory: string[] | null,
+  appsAvailable: boolean,
   handedFrom?: Bot
 ) {
   const sections = [
@@ -138,6 +147,15 @@ function buildSystemPrompt(
       `- Don't announce routine saves. Mention them only when the person asks you to remember or forget something.`,
       `- Change your memory only with updateMemory, never with the file tools.`,
     ].join("\n"),
+    appsAvailable
+      ? [
+          `You can also work in the person's own apps, like Gmail, Google Calendar, GitHub, Slack or Notion, through Composio. Your tools whose names start with COMPOSIO_ find the right action in an app, run it, and manage the person's app connections.`,
+          `- When a task involves one of their apps, use these tools rather than the sandbox's browser. Search for the action first instead of guessing its name or inputs.`,
+          `- If an app isn't connected yet, get a connection link with the connection tool and give it to the person as a Markdown link. Ask them to tell you once they've connected, then carry on. They can also connect and disconnect apps on the Apps page, which is in the menu under their name.`,
+          `- These act on the person's real accounts. Reading is fine, but before anything others will see or that's hard to undo, like sending an email or message, posting, inviting people, or deleting, confirm the details with the person first, unless they've already asked for exactly that.`,
+          `- The person's apps are shared by all their bots, so an app connected in one chat works in every chat.`,
+        ].join("\n")
+      : `The person's apps (Gmail, Calendar, GitHub and so on) can't be reached this turn. If they ask for something in one of their apps, say you can't reach their apps right now.`,
     memory === null
       ? `Your memory couldn't be loaded this turn. If the person asks about something from before, say you can't reach your memory right now rather than that you don't know.`
       : memory.length > 0
@@ -306,12 +324,21 @@ export const chatAgent = chat
       const handedFrom = bot.id === picked.id ? undefined : picked
       // Each turn works in the sandbox of the bot that answers it
       sandboxContext.sandboxId = bot.sandboxId
-      const memory = await readMemory().catch((error) => {
-        if (signal.aborted) throw error
-        // A reply without memory beats no reply
-        console.error("Failed to read memory", bot.sandboxId, error)
-        return null
-      })
+      const [memory, appTools] = await Promise.all([
+        readMemory().catch((error) => {
+          if (signal.aborted) throw error
+          // A reply without memory beats no reply
+          console.error("Failed to read memory", bot.sandboxId, error)
+          return null
+        }),
+        getAppTools(userId).catch((error) => {
+          if (signal.aborted) throw error
+          // A reply without apps beats no reply
+          console.error("Failed to load app tools", error)
+          Sentry.captureException(error, { contexts: { chat: { chatId } } })
+          return null
+        }),
+      ])
       // Tags the reply with its bot, so a group chat can show who wrote it
       chat.setUIMessageStreamOptions({
         messageMetadata: () => ({ botId: bot.id, handedFrom: handedFrom?.id }),
@@ -319,9 +346,9 @@ export const chatAgent = chat
 
       return streamText({
         model: neon(CHAT_MODEL),
-        system: buildSystemPrompt(bot, bots, memory, handedFrom),
+        system: buildSystemPrompt(bot, bots, memory, !!appTools, handedFrom),
         messages,
-        tools,
+        tools: { ...tools, ...appTools },
         abortSignal: signal,
         // Each step is its own model call, so each is written to the ledger
         onStepFinish: async ({ usage: stepUsage }) => {

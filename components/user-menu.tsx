@@ -1,7 +1,7 @@
 "use client"
 
 import { UserButton } from "@clerk/nextjs"
-import { GaugeIcon } from "lucide-react"
+import { BlocksIcon, GaugeIcon } from "lucide-react"
 
 // A client component, since a server component can't reach UserButton.MenuItems
 export function UserMenu() {
@@ -21,6 +21,11 @@ export function UserMenu() {
       }}
     >
       <UserButton.MenuItems>
+        <UserButton.Link
+          label="Apps"
+          labelIcon={<BlocksIcon className="size-4" />}
+          href="/apps"
+        />
         <UserButton.Link
           label="Usage"
           labelIcon={<GaugeIcon className="size-4" />}

@@ -4,6 +4,7 @@ import { useId, useRef, useState } from "react"
 import { useChat } from "@ai-sdk/react"
 import { useAuth } from "@clerk/nextjs"
 import { ArrowRightIcon } from "lucide-react"
+import type { ToolUIPart } from "ai"
 import type { TriggerChatTransport } from "@trigger.dev/sdk/chat"
 import {
   useLoadTranscript,
@@ -451,7 +452,60 @@ function MessagePart({ part }: { part: Part }) {
     case "tool-keyboardPress":
       return <ToolCall part={part} />
     default:
-      return null
+      // The person's app tools come from Composio at run time, so they aren't
+      // among ChatUIMessage's tools
+      return String(part.type).startsWith(APP_TOOL_PREFIX) ? (
+        <AppToolCall part={part as unknown as ToolUIPart} />
+      ) : null
+  }
+}
+
+const APP_TOOL_PREFIX = "tool-COMPOSIO_"
+
+function AppToolCall({ part }: { part: ToolUIPart }) {
+  return (
+    <Tool>
+      <ToolHeader
+        type={part.type}
+        state={part.state}
+        title={describeAppTool(part)}
+      />
+      <ToolContent>
+        <ToolInput input={part.input} />
+        <ToolOutput
+          output={part.state === "output-available" ? part.output : undefined}
+          errorText={part.errorText}
+        />
+      </ToolContent>
+    </Tool>
+  )
+}
+
+// e.g. GMAIL_SEND_EMAIL -> "Gmail send email"
+function humanizeSlug(slug: string) {
+  const words = slug.toLowerCase().split("_").filter(Boolean).join(" ")
+  return words.charAt(0).toUpperCase() + words.slice(1)
+}
+
+// Input is partial while it streams, and its shape is Composio's, so read it loosely
+function describeAppTool(part: ToolUIPart): string {
+  const name = part.type.slice(APP_TOOL_PREFIX.length)
+  switch (name) {
+    case "SEARCH_TOOLS":
+      return "Looked for the right app action"
+    case "GET_TOOL_SCHEMAS":
+      return "Looked up how to use an app action"
+    case "MANAGE_CONNECTIONS":
+      return "Checked your app connections"
+    case "MULTI_EXECUTE_TOOL": {
+      const input = part.input as { tools?: { tool_slug?: unknown }[] }
+      const slugs = (input?.tools ?? []).flatMap((tool) =>
+        typeof tool?.tool_slug === "string" ? [humanizeSlug(tool.tool_slug)] : []
+      )
+      return slugs.length > 0 ? `Used ${slugs.join(", ")}` : "Used your apps"
+    }
+    default:
+      return "Used your apps"
   }
 }
 
