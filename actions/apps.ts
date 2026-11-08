@@ -5,10 +5,26 @@ import * as Sentry from "@sentry/nextjs"
 import { revalidatePath } from "next/cache"
 import { headers } from "next/headers"
 
-import { composio, createAppSession, toolkitSlug } from "@/lib/composio"
+import {
+  appLimitReached,
+  PLANS,
+  upgradeRequired,
+  type AppLimitReached,
+  type UpgradeRequired,
+} from "@/lib/billing"
+import {
+  composio,
+  createAppSession,
+  getConnectedApps,
+  toolkitSlug,
+} from "@/lib/composio"
+import { getPlan } from "@/lib/usage"
 
 type ConnectAppResult =
-  { success: true; redirectUrl: string } | { success: false; error: string }
+  | { success: true; redirectUrl: string }
+  | { success: false; error: string }
+  | UpgradeRequired
+  | AppLimitReached
 
 // Starts the app's sign-in; Composio sends the person back to /apps after
 export async function connectApp(toolkit: string): Promise<ConnectAppResult> {
@@ -20,9 +36,27 @@ export async function connectApp(toolkit: string): Promise<ConnectAppResult> {
     return { success: false, error: "That app doesn't exist." }
   }
 
+  // Apps are for bots, which need a paid plan
+  const plan = await getPlan(userId)
+  if (!plan) return upgradeRequired
+
   // Server actions always send Origin, so this is the app's own URL
   const origin = (await headers()).get("origin")
   try {
+    // Reconnecting an app they already have doesn't take another slot
+    const limit = PLANS[plan.slug].limits.apps
+    if (limit !== null) {
+      const connected = await getConnectedApps(userId)
+      if (!connected.includes(toolkit) && connected.length >= limit) {
+        Sentry.logger.info("App connection blocked", {
+          "user.id": userId,
+          toolkit,
+          reason: "app_limit_reached",
+        })
+        return appLimitReached(limit)
+      }
+    }
+
     const session = await createAppSession(userId)
     // Composio adds status=success or status=failed to this
     const request = await session.authorize(toolkit, {

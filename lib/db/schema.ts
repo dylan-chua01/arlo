@@ -113,6 +113,36 @@ export const chatMembers = pgTable(
   ]
 )
 
+// Who put a file in the chat: the person attaching it, or a bot sharing it
+export const chatFileSource = pgEnum("chat_file_source", ["upload", "bot"])
+
+// Files in a chat: the person's attachments and files bots share from their
+// sandboxes. The bytes live here so a download works while the sandbox sleeps.
+export const chatFiles = pgTable(
+  "chat_files",
+  {
+    id: text()
+      .primaryKey()
+      .$defaultFn(() => nanoid()),
+    chatId: text("chat_id")
+      .notNull()
+      .references(() => chats.id, { onDelete: "cascade" }),
+    // The bot that shared it; null for the person's uploads
+    botId: text("bot_id").references(() => bots.id, { onDelete: "set null" }),
+    source: chatFileSource().notNull(),
+    name: text().notNull(),
+    mediaType: text("media_type").notNull(),
+    // Bytes, before encoding
+    size: integer().notNull(),
+    // Base64, so it travels over the HTTP driver as plain text
+    data: text().notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [index("chat_files_chat_id_idx").on(table.chatId)]
+)
+
 export const usageMeter = pgEnum("usage_meter", ["ai", "sandbox"])
 
 // Append-only ledger of metered usage. A period's usage is the sum of its
@@ -173,5 +203,7 @@ export type InsertGroupChat = z.infer<typeof insertGroupChatSchema>
 export type NewChat = typeof chats.$inferInsert
 export type ChatMember = typeof chatMembers.$inferSelect
 export type NewChatMember = typeof chatMembers.$inferInsert
+export type ChatFile = typeof chatFiles.$inferSelect
+export type NewChatFile = typeof chatFiles.$inferInsert
 export type UsageEvent = typeof usageEvents.$inferSelect
 export type NewUsageEvent = typeof usageEvents.$inferInsert

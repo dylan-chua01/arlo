@@ -7,6 +7,7 @@ import { connectApp, disconnectApp } from "@/actions/apps"
 import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/spinner"
 import { toast } from "@/components/ui/toast"
+import { useAppLimitToast, useUpgradeToast } from "@/hooks/use-upgrade-toast"
 
 export function AppButton({
   toolkit,
@@ -19,11 +20,21 @@ export function AppButton({
   status: "connected" | "expired" | "disconnected"
 }) {
   const [isPending, startTransition] = useTransition()
+  const showUpgradeToast = useUpgradeToast()
+  const showAppLimitToast = useAppLimitToast()
 
   function connect() {
     startTransition(async () => {
       const result = await connectApp(toolkit)
       if (!result.success) {
+        if ("upgradeRequired" in result) {
+          showUpgradeToast(`Couldn't connect ${name}`)
+          return
+        }
+        if ("appLimitReached" in result) {
+          showAppLimitToast(`Couldn't connect ${name}`, result.error)
+          return
+        }
         toast.add({
           type: "error",
           title: `Couldn't connect ${name}`,

@@ -25,13 +25,37 @@ export const composio = new Composio({
 
 // Connected apps belong to the person, so all their bots share them. The Clerk
 // user ID is their Composio user ID.
-export function createAppSession(userId: string) {
+// Pass toolkits to keep the session to those apps, so a bot can't use or
+// connect any other.
+export function createAppSession(userId: string, toolkits?: string[]) {
   return composio.create(userId, {
     // Lets the bot hand the person a link when an app isn't connected yet
     manageConnections: true,
     // Bots already have their own sandbox, so skip Composio's
     sandbox: { enable: false },
+    ...(toolkits && { toolkits }),
   })
+}
+
+// Accounts that take up one of the plan's connected apps. An expired one
+// still does, since reconnecting it is free.
+const CONNECTED_STATUSES = ["ACTIVE", "EXPIRED"] as const
+
+// Slugs of the apps the person has connected, each once
+export async function getConnectedApps(userId: string) {
+  const slugs = new Set<string>()
+  let cursor: string | null | undefined
+  do {
+    const page = await composio.connectedAccounts.list({
+      userIds: [userId],
+      statuses: [...CONNECTED_STATUSES],
+      limit: 100,
+      cursor,
+    })
+    for (const account of page.items) slugs.add(account.toolkit.slug)
+    cursor = page.nextCursor
+  } while (cursor)
+  return [...slugs]
 }
 
 // Toolkit slugs like "gmail" or "google_calendar"

@@ -36,3 +36,19 @@ export function useUsageLimitToast() {
       },
     })
 }
+
+// For a user whose plan's connected apps are all in use
+export function useAppLimitToast() {
+  const router = useRouter()
+
+  return (title: string, description: string) =>
+    toast.add({
+      type: "error",
+      title,
+      description,
+      actionProps: {
+        children: "View plans",
+        onClick: () => router.push("/pricing"),
+      },
+    })
+}

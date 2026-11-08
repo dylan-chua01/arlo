@@ -1,10 +1,11 @@
 "use client"
 
 import { useId, useRef, useState } from "react"
+import { createPortal } from "react-dom"
 import { useChat } from "@ai-sdk/react"
 import { useAuth } from "@clerk/nextjs"
-import { ArrowRightIcon, ExternalLinkIcon } from "lucide-react"
-import type { ToolUIPart } from "ai"
+import { ArrowRightIcon, ExternalLinkIcon, PaperclipIcon } from "lucide-react"
+import type { FileUIPart, ToolUIPart } from "ai"
 import type { TriggerChatTransport } from "@trigger.dev/sdk/chat"
 import {
   useLoadTranscript,
@@ -16,7 +17,16 @@ import {
   mintChatAccessToken,
   startChatSession,
 } from "@/actions/chat"
+import { uploadChatFile } from "@/actions/files"
+import {
+  Attachment,
+  AttachmentInfo,
+  AttachmentPreview,
+  AttachmentRemove,
+  Attachments,
+} from "@/components/ai-elements/attachments"
 import { ChatAvatar } from "@/components/chat-avatar"
+import { ChatFilesSheet, FileCard } from "@/components/chat-files"
 import {
   Conversation,
   ConversationContent,
@@ -32,7 +42,9 @@ import {
 import {
   PromptInput,
   PromptInputBody,
+  PromptInputButton,
   PromptInputFooter,
+  PromptInputHeader,
   PromptInputProvider,
   PromptInputSelect,
   PromptInputSelectContent,
@@ -42,6 +54,7 @@ import {
   PromptInputSubmit,
   PromptInputTextarea,
   PromptInputTools,
+  usePromptInputAttachments,
   usePromptInputController,
   type PromptInputMessage,
 } from "@/components/ai-elements/prompt-input"
@@ -56,6 +69,7 @@ import {
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
+import { toast } from "@/components/ui/toast"
 import { useUpgradeToast, useUsageLimitToast } from "@/hooks/use-upgrade-toast"
 import {
   BOTS,
@@ -65,6 +79,12 @@ import {
 } from "@/lib/billing"
 import { CHAT_AGENT_VERSION } from "@/lib/chat-agent"
 import type { Bot } from "@/lib/db/schema"
+import {
+  formatFileSize,
+  MAX_FILE_SIZE,
+  parseFileUrl,
+  toFileUrl,
+} from "@/lib/files"
 import type { chatAgent } from "@/trigger/chat"
 import type { ChatUIMessage } from "@/trigger/tools"
 
@@ -138,6 +158,9 @@ function ChatView({
   botPicker?: React.ReactNode
 }) {
   const { has } = useAuth()
+  const [mentionAnchor, setMentionAnchor] = useState<HTMLDivElement | null>(
+    null
+  )
   const showUpgradeToast = useUpgradeToast()
   const showUsageLimitToast = useUsageLimitToast()
   const { messages, sendMessage, status, stop } = useChat<ChatUIMessage>({
@@ -153,21 +176,41 @@ function ChatView({
         showUpgradeToast("Couldn't send message")
       }
     },
-    onFinish: ({ message }) => {
+    onFinish: ({ message, isAbort, isError, isDisconnect }) => {
       const { botId, handedFrom } = message.metadata ?? {}
       if (botId && handedFrom) onHandoff?.(botId)
+      // A reply that asked another bot is followed by that bot's turn. Not
+      // when the person stopped it, or it failed.
+      if (isAbort || isError || isDisconnect) return
+      const asked = findAskedBot(message)
+      if (!asked) return
+      // useChat is still wrapping up this request when onFinish runs
+      setTimeout(() =>
+        sendMessage({
+          text: `(${bots?.find((bot) => bot.id === botId)?.name ?? "A bot"} asked ${asked.name} to take over)`,
+          metadata: { botId: asked.botId, relay: true },
+        })
+      )
     },
   })
 
-  function handleSubmit({ text }: PromptInputMessage) {
-    if (!text.trim()) return
+  const [uploading, setUploading] = useState(false)
+
+  async function handleSubmit({ text, files }: PromptInputMessage) {
+    if (!text.trim() && files.length === 0) return
+    if (uploading) throw new Error("Still uploading")
     // The session actions enforce this too, but their errors don't reach the UI
     if (!has?.({ feature: BOTS }) || !has?.({ feature: SANDBOXES })) {
       showUpgradeToast("Couldn't send message")
       // PromptInput keeps the draft when onSubmit throws
       throw new Error(UPGRADE_ERROR)
     }
-    sendMessage({ text, metadata: botId ? { botId } : undefined })
+    const attached = await uploadFiles(id, files, setUploading)
+    sendMessage({
+      text,
+      files: attached,
+      metadata: botId ? { botId } : undefined,
+    })
   }
 
   // The bot is working until its turn ends. Streaming text shows that by
@@ -181,9 +224,14 @@ function ChatView({
     !(lastPart?.type === "text" && lastPart.state === "streaming")
   // Before the reply's first part arrives
   const typingAlone = busy && last?.role !== "assistant"
+  // After a relay, it's already known who answers
+  const typingBot = last?.metadata?.relay
+    ? bots?.find((bot) => bot.id === last.metadata?.botId)
+    : undefined
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
+      <ChatFilesSheet messages={messages} bots={bots} />
       <Conversation className="min-h-0 flex-1">
         <ConversationContent className="mx-auto w-full max-w-3xl">
           {messages.length === 0 ? (
@@ -194,6 +242,10 @@ function ChatView({
           ) : (
             messages.map((message, index) => {
               const typing = typingInReply && index === messages.length - 1
+              // Sent by the chat itself; the askBot call above already shows it
+              if (message.role === "user" && message.metadata?.relay) {
+                return null
+              }
               // Only group chats pass bots; a direct chat's header shows its bot
               if (!bots || message.role !== "assistant") {
                 const to =
@@ -202,7 +254,7 @@ function ChatView({
                 return (
                   <Message from={message.role} key={message.id}>
                     <MessageContent>
-                      {to ? (
+                      {to && (
                         // Plain text, so the tag sits inline in its first line
                         <p className="wrap-break-word whitespace-pre-wrap">
                           <Badge
@@ -218,10 +270,12 @@ function ChatView({
                             )
                             .join("\n\n")}
                         </p>
-                      ) : (
-                        message.parts.map((part, i) => (
+                      )}
+                      {message.parts.map((part, i) =>
+                        // A tagged message's text is already in the line above
+                        to && part.type === "text" ? null : (
                           <MessagePart key={i} part={part} />
-                        ))
+                        )
                       )}
                       {typing && <TypingBubble />}
                     </MessageContent>
@@ -265,10 +319,13 @@ function ChatView({
               from="assistant"
               className={bots ? "flex-row items-start gap-3" : undefined}
             >
-              {/* A group chat hasn't picked who answers yet */}
-              {bots && (
-                <div className="mt-0.5 size-8 shrink-0 rounded-full bg-muted" />
-              )}
+              {/* A group chat hasn't picked who answers yet, unless a bot asked one */}
+              {bots &&
+                (typingBot ? (
+                  <ChatAvatar seed={typingBot.avatar} className="mt-0.5" />
+                ) : (
+                  <div className="mt-0.5 size-8 shrink-0 rounded-full bg-muted" />
+                ))}
               <MessageContent>
                 <TypingBubble />
               </MessageContent>
@@ -278,28 +335,159 @@ function ChatView({
         <ConversationScrollButton />
       </Conversation>
 
-      <div className="mx-auto w-full max-w-3xl p-4 pt-0">
+      <div className="relative mx-auto w-full max-w-3xl p-4 pt-0">
+        {/* The mention list renders here, since the input clips its overflow */}
+        <div
+          ref={setMentionAnchor}
+          className="absolute inset-x-6 bottom-full mb-2"
+        />
         {/* Controls the text so typing @ can tag a bot */}
         <PromptInputProvider>
-          <PromptInput onSubmit={handleSubmit}>
+          <PromptInput
+            onSubmit={handleSubmit}
+            multiple
+            maxFiles={10}
+            maxFileSize={MAX_FILE_SIZE}
+            onError={({ code, message }) =>
+              toast.add({
+                type: "error",
+                title: "Couldn't attach file",
+                description:
+                  code === "max_file_size"
+                    ? `Files can be up to ${formatFileSize(MAX_FILE_SIZE)}.`
+                    : message,
+              })
+            }
+          >
+            <ComposerAttachments />
             <PromptInputBody>
               {bots && onHandoff ? (
-                <MentionTextarea bots={bots} onMention={onHandoff} />
+                <MentionTextarea
+                  bots={bots}
+                  onMention={onHandoff}
+                  listContainer={mentionAnchor}
+                />
               ) : (
                 <PromptInputTextarea placeholder="Send a message…" />
               )}
             </PromptInputBody>
-            <PromptInputFooter
-              className={botPicker ? undefined : "justify-end"}
-            >
-              {botPicker && <PromptInputTools>{botPicker}</PromptInputTools>}
-              <PromptInputSubmit status={status} onStop={stop} />
+            <PromptInputFooter>
+              <PromptInputTools>
+                <AttachButton />
+                {botPicker}
+              </PromptInputTools>
+              <PromptInputSubmit
+                status={uploading ? "submitted" : status}
+                // Stopping mid-upload has nothing to stop
+                onStop={uploading ? undefined : stop}
+              />
             </PromptInputFooter>
           </PromptInput>
         </PromptInputProvider>
       </div>
     </div>
   )
+}
+
+// Stores each attachment with the chat and returns parts that point at it.
+// The bot reads the bytes from there, so they never travel through the chat.
+async function uploadFiles(
+  chatId: string,
+  files: FileUIPart[],
+  setUploading: (uploading: boolean) => void
+): Promise<FileUIPart[]> {
+  if (files.length === 0) return []
+  setUploading(true)
+  let results: Awaited<ReturnType<typeof uploadChatFile>>[]
+  try {
+    results = await Promise.all(
+      files.map(async (file) => {
+        // PromptInput hands over data: URLs, so turn each back into bytes
+        const blob = await (await fetch(file.url)).blob()
+        const formData = new FormData()
+        formData.set("file", blob, file.filename ?? "file")
+        return uploadChatFile(chatId, formData)
+      })
+    )
+  } catch (error) {
+    toast.add({
+      type: "error",
+      title: "Couldn't upload file",
+      description: "Check your connection and try again.",
+    })
+    throw error
+  } finally {
+    setUploading(false)
+  }
+  const failed = results.find((result) => !result.success)
+  if (failed && !failed.success) {
+    toast.add({
+      type: "error",
+      title: "Couldn't upload file",
+      description: failed.error,
+    })
+    // PromptInput keeps the draft and attachments when onSubmit throws
+    throw new Error(failed.error)
+  }
+  return results.flatMap((result) =>
+    result.success
+      ? [
+          {
+            type: "file" as const,
+            url: toFileUrl(result.file.id),
+            mediaType: result.file.mediaType,
+            filename: result.file.name,
+          },
+        ]
+      : []
+  )
+}
+
+function AttachButton() {
+  const attachments = usePromptInputAttachments()
+  return (
+    <PromptInputButton
+      aria-label="Attach files"
+      tooltip="Attach files"
+      onClick={() => attachments.openFileDialog()}
+    >
+      <PaperclipIcon />
+    </PromptInputButton>
+  )
+}
+
+// What's attached to the message being written
+function ComposerAttachments() {
+  const attachments = usePromptInputAttachments()
+  if (attachments.files.length === 0) return null
+  return (
+    <PromptInputHeader>
+      <Attachments variant="inline">
+        {attachments.files.map((file) => (
+          <Attachment
+            key={file.id}
+            data={file}
+            onRemove={() => attachments.remove(file.id)}
+          >
+            <AttachmentPreview />
+            <AttachmentInfo className="max-w-40" />
+            <AttachmentRemove />
+          </Attachment>
+        ))}
+      </Attachments>
+    </PromptInputHeader>
+  )
+}
+
+// The bot a reply asked to go next, if any
+function findAskedBot(message: ChatUIMessage) {
+  if (message.role !== "assistant") return undefined
+  const call = message.parts.findLast(
+    (part) => part.type === "tool-askBot" && part.state === "output-available"
+  )
+  return call?.type === "tool-askBot" && call.state === "output-available"
+    ? call.output
+    : undefined
 }
 
 function TypingBubble() {
@@ -330,14 +518,18 @@ function findMention(textarea: HTMLTextAreaElement): Mention | null {
   return { start: end - match[1].length - 1, end, query: match[1] }
 }
 
-// Typing @ suggests the chat's bots. Picking one tags it as the bot the
-// message is for, and the @ text is removed, since the picker shows the tag.
+// Typing @ suggests the chat's bots, so names are never mistyped. A mention
+// that starts the message addresses it to that bot, and the picker shows the
+// tag instead of the text. One later in the message is written in as @Name.
 function MentionTextarea({
   bots,
   onMention,
+  listContainer,
 }: {
   bots: ChatBot[]
   onMention: (botId: string) => void
+  // Where the list renders, outside the input's clipped box
+  listContainer: HTMLElement | null
 }) {
   const { textInput } = usePromptInputController()
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -361,45 +553,52 @@ function MentionTextarea({
   function pick(bot: ChatBot) {
     if (!mention) return
     const { value } = textInput
-    // Drop the @query and the space after it, if any
+    const before = value.slice(0, mention.start)
+    const addressing = !before.trim()
+    // One space after the name, reusing one that's already there
+    const tag = addressing ? "" : `@${bot.name} `
     const rest = value.slice(mention.end).replace(/^ /, "")
-    textInput.setInput(value.slice(0, mention.start) + rest)
+    textInput.setInput(before + tag + rest)
     setMention(null)
-    onMention(bot.id)
-    // Put the caret back where the tag was, after React applies the new value
+    if (addressing) onMention(bot.id)
+    // Put the caret after the name, once React applies the new value
+    const caret = before.length + tag.length
     requestAnimationFrame(() => {
       textareaRef.current?.focus()
-      textareaRef.current?.setSelectionRange(mention.start, mention.start)
+      textareaRef.current?.setSelectionRange(caret, caret)
     })
   }
 
   return (
     <>
-      {open && (
-        <div
-          id={listId}
-          role="listbox"
-          aria-label="Bots"
-          className="absolute inset-x-2 bottom-full z-10 mb-2 flex flex-col gap-0.5 rounded-lg border bg-popover p-1 text-popover-foreground shadow-md sm:right-auto sm:w-56"
-        >
-          {matches.map((bot, i) => (
-            <div
-              key={bot.id}
-              id={`${listId}-${bot.id}`}
-              role="option"
-              aria-selected={i === active}
-              className="flex cursor-default items-center gap-2 rounded-md px-2 py-1.5 text-sm aria-selected:bg-accent aria-selected:text-accent-foreground"
-              // Keep focus in the textarea
-              onMouseDown={(e) => e.preventDefault()}
-              onMouseEnter={() => setActive(i)}
-              onClick={() => pick(bot)}
-            >
-              <ChatAvatar seed={bot.avatar} className="size-5" />
-              <span className="truncate">{bot.name}</span>
-            </div>
-          ))}
-        </div>
-      )}
+      {open &&
+        listContainer &&
+        createPortal(
+          <div
+            id={listId}
+            role="listbox"
+            aria-label="Bots"
+            className="absolute bottom-0 left-0 z-10 flex w-full flex-col gap-0.5 rounded-lg border bg-popover p-1 text-popover-foreground shadow-md sm:right-auto sm:w-56"
+          >
+            {matches.map((bot, i) => (
+              <div
+                key={bot.id}
+                id={`${listId}-${bot.id}`}
+                role="option"
+                aria-selected={i === active}
+                className="flex cursor-default items-center gap-2 rounded-md px-2 py-1.5 text-sm aria-selected:bg-accent aria-selected:text-accent-foreground"
+                // Keep focus in the textarea
+                onMouseDown={(e) => e.preventDefault()}
+                onMouseEnter={() => setActive(i)}
+                onClick={() => pick(bot)}
+              >
+                <ChatAvatar seed={bot.avatar} className="size-5" />
+                <span className="truncate">{bot.name}</span>
+              </div>
+            ))}
+          </div>,
+          listContainer
+        )}
       <PromptInputTextarea
         ref={textareaRef}
         placeholder="Send a message… Type @ to tag a bot"
@@ -481,11 +680,28 @@ function MessagePart({ part }: { part: Part }) {
   switch (part.type) {
     case "text":
       return <MessageResponse>{part.text}</MessageResponse>
+    case "file": {
+      // Attachments are stored with the chat; other files aren't sent
+      const fileId = parseFileUrl(part.url)
+      return fileId ? (
+        <FileCard
+          file={{
+            fileId,
+            name: part.filename ?? "Attachment",
+            mediaType: part.mediaType,
+          }}
+        />
+      ) : null
+    }
+    case "tool-shareFile":
+      return <ShareFile part={part} />
     // The bot's own look at the screen; the person never sees it
     case "tool-viewScreen":
       return null
     case "tool-showScreen":
       return <ShowScreen part={part} />
+    case "tool-askBot":
+      return <AskBot part={part} />
     case "tool-bash":
       return <BashCall part={part} />
     case "tool-updateMemory":
@@ -613,6 +829,32 @@ function describeAppTool(part: ToolUIPart): string {
   }
 }
 
+// A bot asking another to go next. A failed ask is the bot's to sort out.
+function AskBot({ part }: { part: Extract<Part, { type: "tool-askBot" }> }) {
+  if (part.state === "output-error") return null
+  const name =
+    part.state === "output-available" ? part.output.name : part.input?.bot
+  return (
+    <p className="flex items-start gap-1.5 text-muted-foreground">
+      <ArrowRightIcon className="mt-1 size-3.5 shrink-0" />
+      <span>
+        {part.state === "output-available" ? "Asked" : "Asking"}{" "}
+        {name ?? "another bot"}
+        {part.input?.request && `: ${part.input.request}`}
+      </span>
+    </p>
+  )
+}
+
+function ShareFile({
+  part,
+}: {
+  part: Extract<Part, { type: "tool-shareFile" }>
+}) {
+  if (part.state === "output-available") return <FileCard file={part.output} />
+  return <ToolCall part={part} />
+}
+
 function ShowScreen({
   part,
 }: {
@@ -713,6 +955,10 @@ function describeTool(part: ToolPart): string {
       return "Looked at the screen"
     case "tool-showScreen":
       return "Showed the screen"
+    case "tool-askBot":
+      return `Asked ${part.input?.bot ?? "another bot"}`
+    case "tool-shareFile":
+      return `Shared ${part.input?.name || part.input?.path || "a file"}`
   }
 }
 

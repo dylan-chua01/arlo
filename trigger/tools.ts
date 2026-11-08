@@ -1,14 +1,31 @@
 import type { Sandbox } from "@daytona/sdk"
 import { chat } from "@trigger.dev/sdk/ai"
 import { tool, type InferUITools, type UIDataTypes, type UIMessage } from "ai"
+import { and, eq, inArray } from "drizzle-orm"
 import { z } from "zod"
 
 import { daytona, MEMORY_PATH } from "@/lib/daytona"
+import { db } from "@/lib/db"
+import { chatFiles } from "@/lib/db/schema"
+import {
+  cleanFileName,
+  formatFileSize,
+  MAX_FILE_SIZE,
+  mediaTypeFor,
+} from "@/lib/files"
 
 // Set in onBoot from the chat's bot, read by every tool
 export const sandboxContext = chat.local<{ sandboxId: string }>({
   id: "sandbox",
 })
+
+// The chat and the bot answering this turn, for tools that put files in the chat
+export const chatContext = chat.local<{ chatId: string; botId: string }>({
+  id: "chat-context",
+})
+
+// Where the person's attachments land in the answering bot's sandbox
+export const UPLOADS_DIR = "uploads"
 
 // Long outputs would flood the model's context
 const MAX_OUTPUT = 20_000
@@ -111,6 +128,30 @@ async function loadMemory(sandbox: Sandbox) {
 // Read at the start of every turn, so the bot never has to think to look
 export async function readMemory() {
   return loadMemory(await getSandbox())
+}
+
+// Copies the person's attachments into the answering bot's sandbox, so it can
+// open, convert or edit them with its tools. Scoped to the chat, since the ids
+// come from the browser.
+export async function saveUploads(chatId: string, fileIds: string[]) {
+  if (fileIds.length === 0) return []
+  const files = await db
+    .select({ name: chatFiles.name, data: chatFiles.data })
+    .from(chatFiles)
+    .where(and(eq(chatFiles.chatId, chatId), inArray(chatFiles.id, fileIds)))
+  if (files.length === 0) return []
+  const sandbox = await getSandbox()
+  // uploadFile doesn't create folders
+  await sandbox.process.executeCommand(`mkdir -p ${UPLOADS_DIR}`)
+  await Promise.all(
+    files.map((file) =>
+      sandbox.fs.uploadFile(
+        Buffer.from(file.data, "base64"),
+        `${UPLOADS_DIR}/${file.name}`
+      )
+    )
+  )
+  return files.map((file) => `${UPLOADS_DIR}/${file.name}`)
 }
 
 const point = {
@@ -228,6 +269,54 @@ export const tools = {
     },
   }),
 
+  shareFile: tool({
+    description: `Give the person a file from your sandbox, like a document, slide deck, spreadsheet, PDF, image, chart or archive you made. It appears in the chat as a card they can download, and in the chat's Files panel. Whenever you create or change a file the person will want, share it with this rather than only telling them the path, which they can't reach. Files up to ${formatFileSize(MAX_FILE_SIZE)}.`,
+    inputSchema: z.object({
+      path: z.string().describe("Absolute path, or relative to your home"),
+      name: z
+        .string()
+        .optional()
+        .describe(
+          "The file name the person sees and downloads it as, with its extension; defaults to the file's own name"
+        ),
+    }),
+    execute: async ({ path, name }) => {
+      const sandbox = await getSandbox()
+      const details = await sandbox.fs.getFileDetails(path)
+      if (details.isDir) {
+        throw new Error(
+          `${path} is a folder. Zip it first, e.g. with bash: zip -r folder.zip ${path}`
+        )
+      }
+      if (details.size > MAX_FILE_SIZE) {
+        throw new Error(
+          `${path} is ${formatFileSize(details.size)}, over the ${formatFileSize(MAX_FILE_SIZE)} limit. Compress it or split it up.`
+        )
+      }
+      const bytes = await sandbox.fs.downloadFile(path)
+      const fileName = cleanFileName(name || path)
+      const { chatId, botId } = chatContext
+      const [file] = await db
+        .insert(chatFiles)
+        .values({
+          chatId,
+          botId,
+          source: "bot",
+          name: fileName,
+          mediaType: mediaTypeFor(fileName),
+          size: bytes.byteLength,
+          data: bytes.toString("base64"),
+        })
+        .returning({
+          fileId: chatFiles.id,
+          name: chatFiles.name,
+          mediaType: chatFiles.mediaType,
+          size: chatFiles.size,
+        })
+      return file
+    },
+  }),
+
   mouseMove: tool({
     description: "Move the mouse pointer on your sandbox's screen.",
     inputSchema: z.object(point),
@@ -327,11 +416,73 @@ export const tools = {
   ),
 }
 
-// For group chats. On a user message, botId is the bot it was addressed to.
-// On an assistant message, it's the bot that wrote it, and handedFrom is the
-// bot the person addressed when it was handed over automatically.
+// Bot-to-bot handoffs in a row before the person has to step in, so two bots
+// can't keep asking each other forever
+export const MAX_RELAYS = 6
+
+// Group chats only: lets a bot ask another bot in the chat to take a turn.
+// The asked bot answers right after this reply ends, as its own message.
+export function createAskBot({
+  others,
+  relaysLeft,
+}: {
+  // The chat's other bots
+  others: { id: string; name: string }[]
+  relaysLeft: number
+}) {
+  let asked: { botId: string; name: string } | undefined
+  const askBot = tool({
+    description:
+      "Ask another bot in this group chat to do something. Your reply ends after this call, and they answer next in the chat, as their own message, in front of the person. They see the whole chat, including your reply, but not your sandbox. Use it only when the task needs them: their job covers it, they have information or work you don't, or the person asked you to involve them.",
+    inputSchema: z.object({
+      bot: z.string().describe("Their name, as listed in the group"),
+      request: z
+        .string()
+        .min(1)
+        .describe(
+          "What you need from them, in a sentence or two. Anything they need from your sandbox (numbers, file contents) goes in your reply or here, since they can't see it."
+        ),
+    }),
+    execute: async ({ bot }) => {
+      const name = bot.replace(/^@/, "").trim().toLowerCase()
+      const other = others.find((other) => other.name.toLowerCase() === name)
+      if (!other) {
+        throw new Error(
+          `There's no other bot named ${bot} here. The others are: ${others.map((other) => other.name).join(", ")}.`
+        )
+      }
+      if (asked) {
+        throw new Error(
+          `You already asked ${asked.name}. Only one bot can go next; end your reply.`
+        )
+      }
+      if (relaysLeft <= 0) {
+        throw new Error(
+          "The bots have handed this back and forth too many times in a row. Answer the person yourself, and say what's still left for another bot to do."
+        )
+      }
+      asked = { botId: other.id, name: other.name }
+      return asked
+    },
+  })
+  return {
+    askBot,
+    // Set once the call succeeds, so the reply can stop there
+    hasAsked: () => asked !== undefined,
+  }
+}
+
+type ChatTools = typeof tools & {
+  askBot: ReturnType<typeof createAskBot>["askBot"]
+}
+
+// For group chats. On a user message, botId is the bot it was addressed to,
+// and relay marks the message the chat sends by itself when a bot calls
+// askBot, which the asked bot answers. On an assistant message, botId is the
+// bot that wrote it, and handedFrom is the bot the person addressed when it was
+// handed over automatically.
 export type ChatUIMessage = UIMessage<
-  { botId?: string; handedFrom?: string },
+  { botId?: string; handedFrom?: string; relay?: boolean },
   UIDataTypes,
-  InferUITools<typeof tools>
+  InferUITools<ChatTools>
 >

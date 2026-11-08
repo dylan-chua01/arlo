@@ -2,6 +2,7 @@ import { auth } from "@clerk/nextjs/server"
 import { notFound } from "next/navigation"
 
 import { Chat } from "@/components/chat"
+import { ChatFilesProvider, ChatFilesTrigger } from "@/components/chat-files"
 import { ChatHeader } from "@/components/chat-header"
 import {
   DesktopPanel,
@@ -31,21 +32,25 @@ export default async function Page(props: PageProps<"/chats/[chatId]">) {
     const bots = await getBots()
 
     return (
-      <div className="flex h-svh flex-col">
-        <ChatHeader
-          name={name}
-          avatars={avatars}
-          group={{
-            chat: {
-              id: chat.id,
-              name: chat.name,
-              botIds: chat.bots.map((bot) => bot.id),
-            },
-            bots,
-          }}
-        />
-        <Chat key={chat.id} id={chat.id} bots={chat.bots} />
-      </div>
+      <ChatFilesProvider>
+        <div className="flex h-svh flex-col">
+          <ChatHeader
+            name={name}
+            avatars={avatars}
+            group={{
+              chat: {
+                id: chat.id,
+                name: chat.name,
+                botIds: chat.bots.map((bot) => bot.id),
+              },
+              bots,
+            }}
+          >
+            <ChatFilesTrigger className="ms-auto text-muted-foreground" />
+          </ChatHeader>
+          <Chat key={chat.id} id={chat.id} bots={chat.bots} />
+        </div>
+      </ChatFilesProvider>
     )
   }
 
@@ -53,19 +58,24 @@ export default async function Page(props: PageProps<"/chats/[chatId]">) {
 
   return (
     <DesktopPanelProvider>
-      {/* The group's inline height: 100% beats a class, so its parent sets the height */}
-      <div className="h-svh">
-        <ResizablePanelGroup orientation="horizontal">
-          <ResizablePanel minSize="30%" className="flex flex-col">
-            <ChatHeader name={name} avatars={avatars} bot={bot}>
-              <DesktopPanelTrigger />
-            </ChatHeader>
-            <Chat key={chat.id} id={chat.id} />
-          </ResizablePanel>
-          <ResizableHandle />
-          <DesktopPanel bot={bot} defaultSize="0%" minSize="30%" />
-        </ResizablePanelGroup>
-      </div>
+      <ChatFilesProvider>
+        {/* The group's inline height: 100% beats a class, so its parent sets the height */}
+        <div className="h-svh">
+          <ResizablePanelGroup orientation="horizontal">
+            <ResizablePanel minSize="30%" className="flex flex-col">
+              <ChatHeader name={name} avatars={avatars} bot={bot}>
+                <div className="ms-auto flex items-center gap-1">
+                  <ChatFilesTrigger className="text-muted-foreground" />
+                  <DesktopPanelTrigger />
+                </div>
+              </ChatHeader>
+              <Chat key={chat.id} id={chat.id} />
+            </ResizablePanel>
+            <ResizableHandle />
+            <DesktopPanel bot={bot} defaultSize="0%" minSize="30%" />
+          </ResizablePanelGroup>
+        </div>
+      </ChatFilesProvider>
     </DesktopPanelProvider>
   )
 }

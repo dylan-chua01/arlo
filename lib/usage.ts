@@ -1,8 +1,9 @@
 import { createClerkClient } from "@clerk/backend"
 import type { LanguageModelUsage } from "ai"
+import { addMonths, differenceInCalendarMonths } from "date-fns"
 import { and, eq, gte, lt, sql } from "drizzle-orm"
 
-import { PRO_LIMITS, PRO_PLAN } from "@/lib/billing"
+import { isPlanSlug, PLANS, type PlanSlug } from "@/lib/billing"
 import { db } from "@/lib/db"
 import { usageEvents, type NewUsageEvent } from "@/lib/db/schema"
 
@@ -29,16 +30,33 @@ const LIVE_STATUSES = new Set(["active", "canceled", "past_due"])
 
 export type BillingPeriod = { start: Date; end: Date }
 
+export type Plan = { slug: PlanSlug; period: BillingPeriod }
+
 export type Usage = {
+  plan: PlanSlug
   period: BillingPeriod
   ai: { used: number; limit: number }
-  sandbox: { used: number; limit: number }
+  // A null limit is unlimited
+  sandbox: { used: number; limit: number | null }
 }
 
-// The user's current Pro period, or null when they aren't on Pro
-export async function getBillingPeriod(
-  userId: string
-): Promise<BillingPeriod | null> {
+// The month of usage that contains now. Months count from a fixed anchor,
+// rather than from Clerk's billing period, because Clerk starts a new period
+// when someone switches plans and their usage shouldn't reset with it. It also
+// gives yearly plans a monthly allowance.
+export function getUsageMonth(anchor: Date, now = new Date()): BillingPeriod {
+  // From the anchor each time, so a 31st anchor isn't pulled to the 28th for good
+  let months = differenceInCalendarMonths(now, anchor)
+  if (addMonths(anchor, months) > now) months--
+  return {
+    start: addMonths(anchor, months),
+    end: addMonths(anchor, months + 1),
+  }
+}
+
+// The user's paid plan and its current usage month, or null when they're on
+// the free plan
+export async function getPlan(userId: string): Promise<Plan | null> {
   let subscription
   try {
     subscription = await clerk.billing.getUserBillingSubscription(userId)
@@ -49,23 +67,35 @@ export async function getBillingPeriod(
   }
 
   const now = Date.now()
-  const item = subscription.subscriptionItems.find(
-    (item) =>
-      item.plan?.slug === PRO_PLAN &&
+  const live = subscription.subscriptionItems.flatMap((item) => {
+    const slug = item.plan?.slug
+    return isPlanSlug(slug) &&
       LIVE_STATUSES.has(item.status) &&
       item.periodStart <= now &&
       item.periodEnd !== null &&
       item.periodEnd > now
-  )
-  if (!item?.periodEnd) return null
+      ? [{ slug, start: item.periodStart, end: item.periodEnd }]
+      : []
+  })
+  // Right after an upgrade the old plan can still be live (canceled, until its
+  // period ends) next to the new one, so the biggest plan wins
+  const rank = (slug: PlanSlug) => Object.keys(PLANS).indexOf(slug)
+  const best = live.sort((a, b) => rank(b.slug) - rank(a.slug))[0]
+  if (!best) return null
 
-  return { start: new Date(item.periodStart), end: new Date(item.periodEnd) }
+  // The subscription outlives plan switches, unlike its items
+  return {
+    slug: best.slug,
+    period: getUsageMonth(new Date(subscription.createdAt)),
+  }
 }
 
-// The ledger summed over the current period, against the Pro limits
+// The ledger summed over the current usage month, against the plan's limits
 export async function getUsage(userId: string): Promise<Usage | null> {
-  const period = await getBillingPeriod(userId)
-  if (!period) return null
+  const plan = await getPlan(userId)
+  if (!plan) return null
+  const { period } = plan
+  const { limits } = PLANS[plan.slug]
 
   const totals = await db
     .select({
@@ -87,15 +117,17 @@ export async function getUsage(userId: string): Promise<Usage | null> {
     totals.find((row) => row.meter === meter)?.total ?? 0
 
   return {
+    plan: plan.slug,
     period,
-    ai: { used: used("ai"), limit: PRO_LIMITS.ai },
-    sandbox: { used: used("sandbox"), limit: PRO_LIMITS.sandbox },
+    ai: { used: used("ai"), limit: limits.ai },
+    sandbox: { used: used("sandbox"), limit: limits.sandbox },
   }
 }
 
-// Whether a metered allowance is spent
+// Whether a metered allowance is spent. An unlimited one never is.
 export function isSpent(usage: Usage, meter: "ai" | "sandbox") {
-  return usage[meter].used >= usage[meter].limit
+  const { used, limit } = usage[meter]
+  return limit !== null && used >= limit
 }
 
 export async function recordUsage(event: NewUsageEvent) {

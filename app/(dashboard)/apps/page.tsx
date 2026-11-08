@@ -1,3 +1,4 @@
+import Link from "next/link"
 import { auth } from "@clerk/nextjs/server"
 import { BlocksIcon, SearchIcon } from "lucide-react"
 
@@ -24,7 +25,9 @@ import {
   ItemMedia,
   ItemTitle,
 } from "@/components/ui/item"
-import { createAppSession } from "@/lib/composio"
+import { PLANS } from "@/lib/billing"
+import { createAppSession, getConnectedApps } from "@/lib/composio"
+import { getPlan } from "@/lib/usage"
 
 type Toolkit = Awaited<
   ReturnType<Awaited<ReturnType<typeof createAppSession>>["toolkits"]>
@@ -38,14 +41,22 @@ export default async function Page(props: PageProps<"/apps">) {
 
   let connected: Toolkit[]
   let catalog: Toolkit[]
+  let plan: Awaited<ReturnType<typeof getPlan>>
+  // What counts against the plan, which includes expired connections
+  let used: number
   try {
     const session = await createAppSession(userId)
-    const [connectedPage, catalogPage] = await Promise.all([
-      // 50 is the most Composio returns at once
-      session.toolkits({ isConnected: true, limit: 50 }),
-      session.toolkits({ search: search || undefined, limit: 30 }),
-    ])
+    const [connectedPage, catalogPage, planResult, connectedApps] =
+      await Promise.all([
+        // 50 is the most Composio returns at once
+        session.toolkits({ isConnected: true, limit: 50 }),
+        session.toolkits({ search: search || undefined, limit: 30 }),
+        getPlan(userId),
+        getConnectedApps(userId),
+      ])
     connected = connectedPage.items
+    plan = planResult
+    used = connectedApps.length
     // Composio's own toolkit backs the bot's tools; it isn't an app to connect
     catalog = catalogPage.items.filter((toolkit) => toolkit.slug !== "composio")
   } catch (error) {
@@ -91,6 +102,7 @@ export default async function Page(props: PageProps<"/apps">) {
           your email or adding to your calendar. Every bot you make can use
           them.
         </p>
+        {plan && <AppAllowance plan={plan.slug} used={used} />}
       </div>
 
       {!search && connected.length > 0 && (
@@ -130,6 +142,40 @@ export default async function Page(props: PageProps<"/apps">) {
         )}
       </section>
     </div>
+  )
+}
+
+function AppAllowance({
+  plan,
+  used,
+}: {
+  plan: keyof typeof PLANS
+  used: number
+}) {
+  const { name, limits } = PLANS[plan]
+
+  if (limits.apps === null) {
+    return (
+      <p className="text-sm text-muted-foreground">
+        Your {name} plan lets you connect as many apps as you like.
+      </p>
+    )
+  }
+  return (
+    <p className="text-sm text-muted-foreground">
+      <span className="font-medium text-foreground tabular-nums">
+        {used} of {limits.apps}
+      </span>{" "}
+      apps connected on your {name} plan.
+      {used >= limits.apps && (
+        <>
+          {" "}
+          <Link href="/pricing" className="underline underline-offset-4">
+            Upgrade to connect more
+          </Link>
+        </>
+      )}
+    </p>
   )
 }
 
