@@ -39,14 +39,14 @@ import {
   FieldGroup,
   FieldLabel,
 } from "@/components/ui/field"
+import { SchedulePicker } from "@/components/schedule-picker"
 import { Input } from "@/components/ui/input"
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select"
 import { Spinner } from "@/components/ui/spinner"
 import { Textarea } from "@/components/ui/textarea"
 import { toast } from "@/components/ui/toast"
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { useUpgradeToast } from "@/hooks/use-upgrade-toast"
-import { SCHEDULE_PRESETS } from "@/lib/cron"
+import { describeSchedule } from "@/lib/cron"
 import {
   insertRecurringTaskSchema,
   type Bot,
@@ -85,7 +85,8 @@ function getDefaultValues(
     botId: bots[0]?.id ?? "",
     title: "",
     instructions: "",
-    cron: SCHEDULE_PRESETS[2].cron,
+    // Weekdays at 9:00 AM
+    cron: "0 9 * * 1-5",
     timezone: browserTimezone(),
   }
 }
@@ -110,7 +111,7 @@ function TaskDialog({
 
   const cron = useWatch({ control: form.control, name: "cron" })
   const timezone = useWatch({ control: form.control, name: "timezone" })
-  const activePreset = SCHEDULE_PRESETS.find((preset) => preset.cron === cron)
+  const summary = describeSchedule(cron)
   const timezones = React.useMemo(
     () => timezoneOptions(browserTimezone(), timezone),
     [timezone]
@@ -229,72 +230,59 @@ function TaskDialog({
                 </Field>
               )}
             />
-            <ToggleGroup
-              variant="outline"
-              className="flex-wrap"
-              aria-label="Schedule presets"
-              value={activePreset ? [activePreset.cron] : []}
-              onValueChange={([value]) => {
-                if (value)
-                  form.setValue("cron", value, { shouldValidate: true })
-              }}
-            >
-              {SCHEDULE_PRESETS.map((preset) => (
-                <ToggleGroupItem key={preset.cron} value={preset.cron}>
-                  {preset.label}
-                </ToggleGroupItem>
-              ))}
-            </ToggleGroup>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <Controller
-                name="cron"
-                control={form.control}
-                render={({ field, fieldState }) => (
-                  <Field data-invalid={fieldState.invalid}>
-                    <FieldLabel htmlFor="task-cron">Schedule</FieldLabel>
-                    <Input
-                      {...field}
-                      id="task-cron"
-                      placeholder="0 9 * * 1-5"
-                      autoComplete="off"
-                      className="font-mono"
-                      aria-invalid={fieldState.invalid}
-                    />
+            <Controller
+              name="cron"
+              control={form.control}
+              render={({ field, fieldState }) => (
+                <Field data-invalid={fieldState.invalid}>
+                  <FieldLabel htmlFor="task-schedule">Repeats</FieldLabel>
+                  <SchedulePicker
+                    id="task-schedule"
+                    value={field.value}
+                    onChange={(cron) =>
+                      form.setValue("cron", cron, { shouldValidate: true })
+                    }
+                    invalid={fieldState.invalid}
+                  />
+                  {summary ? (
                     <FieldDescription>
-                      Cron: minute, hour, day, month, weekday. Presets run at
-                      9:00.
+                      Runs {summary.charAt(0).toLowerCase() + summary.slice(1)}.
                     </FieldDescription>
-                    {fieldState.invalid && (
-                      <FieldError errors={[fieldState.error]} />
-                    )}
-                  </Field>
-                )}
-              />
-              <Controller
-                name="timezone"
-                control={form.control}
-                render={({ field, fieldState }) => (
-                  <Field data-invalid={fieldState.invalid}>
-                    <FieldLabel htmlFor="task-timezone">Time zone</FieldLabel>
-                    <NativeSelect
-                      {...field}
-                      id="task-timezone"
-                      className="w-full"
-                      aria-invalid={fieldState.invalid}
-                    >
-                      {timezones.map((zone) => (
-                        <NativeSelectOption key={zone} value={zone}>
-                          {zone.replaceAll("_", " ")}
-                        </NativeSelectOption>
-                      ))}
-                    </NativeSelect>
-                    {fieldState.invalid && (
-                      <FieldError errors={[fieldState.error]} />
-                    )}
-                  </Field>
-                )}
-              />
-            </div>
+                  ) : (
+                    <FieldDescription>
+                      Cron: minute, hour, day of month, month, day of week.
+                    </FieldDescription>
+                  )}
+                  {fieldState.invalid && (
+                    <FieldError errors={[fieldState.error]} />
+                  )}
+                </Field>
+              )}
+            />
+            <Controller
+              name="timezone"
+              control={form.control}
+              render={({ field, fieldState }) => (
+                <Field data-invalid={fieldState.invalid}>
+                  <FieldLabel htmlFor="task-timezone">Time zone</FieldLabel>
+                  <NativeSelect
+                    {...field}
+                    id="task-timezone"
+                    className="w-full"
+                    aria-invalid={fieldState.invalid}
+                  >
+                    {timezones.map((zone) => (
+                      <NativeSelectOption key={zone} value={zone}>
+                        {zone.replaceAll("_", " ")}
+                      </NativeSelectOption>
+                    ))}
+                  </NativeSelect>
+                  {fieldState.invalid && (
+                    <FieldError errors={[fieldState.error]} />
+                  )}
+                </Field>
+              )}
+            />
           </FieldGroup>
         </form>
         <DialogFooter>

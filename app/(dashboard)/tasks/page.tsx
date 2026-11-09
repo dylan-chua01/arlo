@@ -24,6 +24,7 @@ import {
   ItemMedia,
   ItemTitle,
 } from "@/components/ui/item"
+import { describeSchedule } from "@/lib/cron"
 import { db } from "@/lib/db"
 import type { TaskRun } from "@/lib/db/schema"
 import { listRecurringTasks } from "@/lib/tasks"
@@ -98,7 +99,8 @@ export default async function Page() {
                 <ItemContent>
                   <ItemTitle>{task.title}</ItemTitle>
                   <ItemDescription>
-                    {task.bot.name} · {task.scheduleDescription} (
+                    {task.bot.name} ·{" "}
+                    {describeSchedule(task.cron) ?? task.scheduleDescription} (
                     {task.timezone.replaceAll("_", " ")})
                     {task.active
                       ? task.nextRunAt &&
