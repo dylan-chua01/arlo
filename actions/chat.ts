@@ -23,6 +23,7 @@ import {
   type Chat,
   type InsertGroupChat,
 } from "@/lib/db/schema"
+import { deleteSchedulesFor } from "@/lib/tasks"
 import { getChat } from "@/queries/chats"
 import type { chatAgent } from "@/trigger/chat"
 
@@ -205,6 +206,10 @@ export async function deleteGroupChat(
   if (!isAuthenticated) {
     return { success: false, error: "You need to be signed in." }
   }
+
+  // Recurring tasks reporting here cascade with the chat, but their schedules
+  // live in Trigger.dev. getChat checks it's the user's.
+  if (await getChat(chatId)) await deleteSchedulesFor({ chatId })
 
   // Direct chats go with their bot, so only groups are deleted on their own.
   // Members cascade; the bots and their sandboxes stay.

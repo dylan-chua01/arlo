@@ -4,8 +4,14 @@ import { useId, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import { useChat } from "@ai-sdk/react"
 import { useAuth } from "@clerk/nextjs"
-import { ArrowRightIcon, ExternalLinkIcon, PaperclipIcon } from "lucide-react"
+import {
+  ArrowRightIcon,
+  ExternalLinkIcon,
+  ListChecksIcon,
+  PaperclipIcon,
+} from "lucide-react"
 import type { FileUIPart, ToolUIPart } from "ai"
+import { format, isThisYear, isToday } from "date-fns"
 import type { TriggerChatTransport } from "@trigger.dev/sdk/chat"
 import {
   useLoadTranscript,
@@ -112,7 +118,12 @@ export function Chat({
       startChatSession({ chatId, clientData }),
     // Sent with every turn, so the agent answers as the picked bot and a run on
     // stale agent code knows to upgrade
-    clientData: { botId, agentVersion: CHAT_AGENT_VERSION },
+    clientData: {
+      botId,
+      agentVersion: CHAT_AGENT_VERSION,
+      // So "every morning at 9" means the person's 9
+      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    },
   })
   const { messages, isLoading } = useLoadTranscript(id, loadChatTranscript, {
     transport,
@@ -188,7 +199,7 @@ function ChatView({
       setTimeout(() =>
         sendMessage({
           text: `(${bots?.find((bot) => bot.id === botId)?.name ?? "A bot"} asked ${asked.name} to take over)`,
-          metadata: { botId: asked.botId, relay: true },
+          metadata: { botId: asked.botId, relay: true, createdAt: Date.now() },
         })
       )
     },
@@ -209,7 +220,7 @@ function ChatView({
     sendMessage({
       text,
       files: attached,
-      metadata: botId ? { botId } : undefined,
+      metadata: { ...(botId && { botId }), createdAt: Date.now() },
     })
   }
 
@@ -246,6 +257,10 @@ function ChatView({
               if (message.role === "user" && message.metadata?.relay) {
                 return null
               }
+              // Posted by a background task as it ends; the report follows
+              if (message.role === "user" && message.metadata?.taskRunId) {
+                return <TaskNotice key={message.id} message={message} />
+              }
               // Only group chats pass bots; a direct chat's header shows its bot
               if (!bots || message.role !== "assistant") {
                 const to =
@@ -279,6 +294,7 @@ function ChatView({
                       )}
                       {typing && <TypingBubble />}
                     </MessageContent>
+                    <MessageTime message={message} />
                   </Message>
                 )
               }
@@ -309,6 +325,7 @@ function ChatView({
                       <MessagePart key={i} part={part} />
                     ))}
                     {typing && <TypingBubble />}
+                    <MessageTime message={message} />
                   </MessageContent>
                 </Message>
               )
@@ -704,6 +721,10 @@ function MessagePart({ part }: { part: Part }) {
       return <AskBot part={part} />
     case "tool-bash":
       return <BashCall part={part} />
+    case "tool-startBackgroundTask":
+    case "tool-scheduleTask":
+    case "tool-listTasks":
+    case "tool-manageTask":
     case "tool-updateMemory":
     case "tool-readFile":
     case "tool-writeFile":
@@ -804,9 +825,9 @@ function describeAppTool(part: ToolUIPart): string {
   const name = part.type.slice(APP_TOOL_PREFIX.length)
   switch (name) {
     case "SEARCH_TOOLS":
-      return "Looked for the right app action"
+      return "Searched your apps"
     case "GET_TOOL_SCHEMAS":
-      return "Looked up how to use an app action"
+      return "Checked how to use an app"
     case "MANAGE_CONNECTIONS": {
       const apps = getConnectLinks(part).map((link) =>
         humanizeSlug(link.toolkit)
@@ -932,25 +953,31 @@ function describeTool(part: ToolPart): string {
         ? "Forgot something"
         : "Saved to memory"
     case "tool-bash":
-      return part.input?.command ? `Ran ${part.input.command}` : "Ran a command"
+      // The bot's own plain words; replies from before it wrote them get a
+      // generic title rather than the command
+      return part.input?.description?.trim() || "Worked on its computer"
     case "tool-readFile":
-      return `Read ${part.input?.path ?? "a file"}`
+      return `Read ${fileName(part.input?.path) ?? "a file"}`
     case "tool-writeFile":
-      return `Wrote ${part.input?.path ?? "a file"}`
+      return `Saved ${fileName(part.input?.path) ?? "a file"}`
     case "tool-listFiles":
-      return `Listed ${part.input?.path ?? "a folder"}`
+      return "Looked through its files"
     case "tool-mouseMove":
-      return `Moved the mouse to ${point(part.input)}`
+      return "Moved the mouse"
     case "tool-mouseClick":
-      return `${part.input?.double ? "Double-clicked" : "Clicked"} at ${point(part.input)}`
+      return part.input?.double
+        ? "Double-clicked on the screen"
+        : "Clicked on the screen"
     case "tool-mouseDrag":
-      return `Dragged from ${point({ x: part.input?.startX, y: part.input?.startY })} to ${point({ x: part.input?.endX, y: part.input?.endY })}`
+      return "Dragged on the screen"
     case "tool-mouseScroll":
-      return `Scrolled ${part.input?.direction ?? ""} at ${point(part.input)}`
+      return part.input?.direction
+        ? `Scrolled ${part.input.direction}`
+        : "Scrolled"
     case "tool-keyboardType":
       return "Typed text"
     case "tool-keyboardPress":
-      return `Pressed ${[...(part.input?.modifiers ?? []), part.input?.key].filter(Boolean).join("+")}`
+      return `Pressed ${[...(part.input?.modifiers ?? []), keyName(part.input?.key)].filter(Boolean).join(" + ")}`
     case "tool-viewScreen":
       return "Looked at the screen"
     case "tool-showScreen":
@@ -959,9 +986,75 @@ function describeTool(part: ToolPart): string {
       return `Asked ${part.input?.bot ?? "another bot"}`
     case "tool-shareFile":
       return `Shared ${part.input?.name || part.input?.path || "a file"}`
+    case "tool-startBackgroundTask":
+      return `Started in the background: ${part.input?.title ?? "a task"}`
+    case "tool-scheduleTask":
+      return part.state === "output-available"
+        ? `Scheduled ${part.output.title}: ${part.output.schedule}`
+        : `Scheduled ${part.input?.title ?? "a task"}`
+    case "tool-listTasks":
+      return "Checked your recurring tasks"
+    case "tool-manageTask":
+      return part.input?.action === "delete"
+        ? "Deleted a recurring task"
+        : part.input?.action === "resume"
+          ? "Resumed a recurring task"
+          : "Paused a recurring task"
   }
 }
 
-function point(input?: { x?: number; y?: number }) {
-  return input?.x == null || input?.y == null ? "…" : `(${input.x}, ${input.y})`
+// Messages from before they were stamped show no time
+function MessageTime({ message }: { message: ChatUIMessage }) {
+  const createdAt = message.metadata?.createdAt
+  if (!createdAt) return null
+  const date = new Date(createdAt)
+  const label = isToday(date)
+    ? format(date, "h:mm a")
+    : isThisYear(date)
+      ? format(date, "MMM d, h:mm a")
+      : format(date, "MMM d, yyyy, h:mm a")
+  return (
+    <time
+      dateTime={date.toISOString()}
+      title={format(date, "PPPP 'at' h:mm a")}
+      className="text-xs text-muted-foreground group-[.is-user]:ml-auto"
+    >
+      {label}
+    </time>
+  )
+}
+
+function TaskNotice({ message }: { message: ChatUIMessage }) {
+  const text = message.parts
+    .flatMap((part) => (part.type === "text" ? [part.text] : []))
+    .join(" ")
+    // Wrapped in parentheses for the bot's history, not for the person
+    .replace(/^\((.*)\)$/, "$1")
+  return (
+    <p className="flex items-center justify-center gap-1.5 text-sm text-muted-foreground">
+      <ListChecksIcon className="size-3.5" />
+      {text}
+      {message.metadata?.createdAt && (
+        <span>· {format(message.metadata.createdAt, "MMM d, h:mm a")}</span>
+      )}
+    </p>
+  )
+}
+
+// The last part of a path, which is what the person would recognize
+function fileName(path?: string) {
+  return path?.split("/").filter(Boolean).at(-1)
+}
+
+// X11 key names, as they're printed on a keyboard
+const KEY_NAMES: Record<string, string> = {
+  Return: "Enter",
+  BackSpace: "Backspace",
+  Escape: "Esc",
+  Prior: "Page Up",
+  Next: "Page Down",
+}
+
+function keyName(key?: string) {
+  return key && (KEY_NAMES[key] ?? key)
 }

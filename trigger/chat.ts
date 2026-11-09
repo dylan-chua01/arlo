@@ -2,12 +2,14 @@ import { neon } from "@neon/ai-sdk-provider"
 import * as Sentry from "@sentry/node"
 import { chat } from "@trigger.dev/sdk/ai"
 import {
+  createUIMessageStream,
   generateText,
   Output,
   stepCountIs,
   type FilePart,
   type LanguageModelUsage,
   type ModelMessage,
+  type UIMessageStreamOptions,
   type UserModelMessage,
 } from "ai"
 import { and, eq, inArray } from "drizzle-orm"
@@ -22,7 +24,7 @@ import {
 import { CHAT_AGENT_VERSION } from "@/lib/chat-agent"
 import { createAppSession, getConnectedApps } from "@/lib/composio"
 import { db } from "@/lib/db"
-import { chatFiles, type Bot, type ChatFile } from "@/lib/db/schema"
+import { chatFiles, taskRuns, type Bot, type ChatFile } from "@/lib/db/schema"
 import { formatFileSize, isPreviewableImage, parseFileUrl } from "@/lib/files"
 import { getUsage, isSpent, recordAiUsage } from "@/lib/usage"
 
@@ -37,8 +39,9 @@ import {
   UPLOADS_DIR,
   type ChatUIMessage,
 } from "./tools"
+import { createTaskTools, TASKS_PROMPT } from "./task-tools"
 
-const CHAT_MODEL = "claude-sonnet-5"
+export const CHAT_MODEL = "claude-sonnet-5"
 const ROUTER_MODEL = "claude-haiku-5-5"
 
 // The user whose plan pays for the chat's turns
@@ -273,7 +276,7 @@ function latestAttachments(history: ChatUIMessage[]) {
 // app action, run it, and start a connection when an app isn't linked yet.
 // Once the plan's connected apps are all in use, the session only covers
 // those, so the bot can't connect another.
-async function getAppTools(userId: string, plan: PlanSlug) {
+export async function getAppTools(userId: string, plan: PlanSlug) {
   const limit = PLANS[plan].limits.apps
   const connected = limit === null ? null : await getConnectedApps(userId)
   const full = limit !== null && connected !== null && connected.length >= limit
@@ -286,7 +289,7 @@ async function getAppTools(userId: string, plan: PlanSlug) {
 
 type AppAccess = Awaited<ReturnType<typeof getAppTools>>
 
-function buildSystemPrompt(
+export function buildSystemPrompt(
   bot: Bot,
   bots: Bot[],
   memory: string[] | null,
@@ -383,6 +386,68 @@ function buildSystemPrompt(
   return sections.join("\n\n")
 }
 
+// The message a finished task run posts to its chat. Its text and files are
+// read from the run, never from the message, which could come from a browser.
+function findTaskReport(history: ChatUIMessage[]) {
+  const latest = history.at(-1)
+  if (latest?.role !== "user") return null
+  return latest.metadata?.taskRunId ?? null
+}
+
+// Answers with a task run's report as the bot's message, without a model call.
+// Shaped like a streamText result, so the agent pipes and saves it the same way.
+async function reportTaskRun(chatId: string, taskRunId: string) {
+  const [run] = await db
+    .select()
+    .from(taskRuns)
+    .where(and(eq(taskRuns.id, taskRunId), eq(taskRuns.chatId, chatId)))
+  const finished =
+    run && (run.status === "succeeded" || run.status === "failed")
+  const text = finished
+    ? (run.report ?? "Done.")
+    : "That background task isn't finished yet."
+  const files = finished ? run.files : []
+
+  return {
+    toUIMessageStream: (options: UIMessageStreamOptions<ChatUIMessage> = {}) =>
+      createUIMessageStream<ChatUIMessage>({
+        originalMessages: options.originalMessages,
+        generateId: options.generateMessageId,
+        onFinish: options.onFinish,
+        onError: options.onError,
+        execute: ({ writer }) => {
+          writer.write({
+            type: "start",
+            messageMetadata: {
+              botId: run?.botId,
+              taskRunId,
+              createdAt: Date.now(),
+            },
+          })
+          writer.write({ type: "text-start", id: "report" })
+          writer.write({ type: "text-delta", id: "report", delta: text })
+          writer.write({ type: "text-end", id: "report" })
+          // The same parts shareFile makes in chat, so the files show as cards
+          for (const file of files) {
+            const toolCallId = `share-${file.fileId}`
+            writer.write({
+              type: "tool-input-available",
+              toolCallId,
+              toolName: "shareFile",
+              input: { path: file.name, name: file.name },
+            })
+            writer.write({
+              type: "tool-output-available",
+              toolCallId,
+              output: file,
+            })
+          }
+          writer.write({ type: "finish", finishReason: "stop" })
+        },
+      }),
+  }
+}
+
 // The transcript is kept by the default storage, keyed by chat id
 export const chatAgent = chat
   .withUIMessage<ChatUIMessage>()
@@ -392,6 +457,8 @@ export const chatAgent = chat
       botId: z.string().optional(),
       // The CHAT_AGENT_VERSION the client was built with
       agentVersion: z.number().optional(),
+      // The person's IANA time zone, for scheduling tasks
+      timezone: z.string().optional(),
     }),
   })
   .agent({
@@ -489,6 +556,11 @@ export const chatAgent = chat
       signal,
       streamText,
     }) => {
+      // A finished background task reporting in. It only replays what's
+      // already done, so it's free and skips the plan checks.
+      const taskRunId = findTaskReport(chat.history.all() as ChatUIMessage[])
+      if (taskRunId) return reportTaskRun(chatId, taskRunId)
+
       // Every turn runs a model and can use a sandbox, so it needs Pro and
       // both allowances. A thrown message reaches the client as the turn's error.
       const userId = await getChatOwner(chatId)
@@ -554,25 +626,42 @@ export const chatAgent = chat
           return null
         }),
       ])
-      // Tags the reply with its bot, so a group chat can show who wrote it
+      // Tags the reply with its bot, so a group chat can show who wrote it,
+      // and with when it started
+      const createdAt = Date.now()
       chat.setUIMessageStreamOptions({
-        messageMetadata: () => ({ botId: bot.id, handedFrom: handedFrom?.id }),
+        messageMetadata: () => ({
+          botId: bot.id,
+          handedFrom: handedFrom?.id,
+          createdAt,
+        }),
+      })
+
+      const taskTools = createTaskTools({
+        userId,
+        chatId,
+        bot,
+        timezone: clientData?.timezone,
       })
 
       return streamText({
         model: neon(CHAT_MODEL),
-        system: buildSystemPrompt(
-          bot,
-          bots,
-          memory,
-          appTools,
-          handedFrom,
-          relay ?? undefined
-        ),
+        system: [
+          buildSystemPrompt(
+            bot,
+            bots,
+            memory,
+            appTools,
+            handedFrom,
+            relay ?? undefined
+          ),
+          TASKS_PROMPT,
+        ].join("\n\n"),
         messages,
         tools: {
           ...tools,
           ...appTools?.tools,
+          ...taskTools,
           ...(askBot && { askBot: askBot.askBot }),
         },
         abortSignal: signal,

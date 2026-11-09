@@ -14,6 +14,8 @@ import {
   mediaTypeFor,
 } from "@/lib/files"
 
+import type { TaskTools } from "./task-tools"
+
 // Set in onBoot from the chat's bot, read by every tool
 export const sandboxContext = chat.local<{ sandboxId: string }>({
   id: "sandbox",
@@ -198,6 +200,11 @@ export const tools = {
     description:
       "Run a shell command in your sandbox and get its combined output and exit code. Each call starts a fresh shell, so chain dependent steps with && or pass cwd.",
     inputSchema: z.object({
+      description: z
+        .string()
+        .describe(
+          'What this does, in a few plain words for the person, who may not be technical. Shown to them instead of the command, e.g. "Checking the presentation file" or "Installing the tools to make slides". No commands, paths or jargon.'
+        ),
       command: z.string().describe("The command to run"),
       cwd: z
         .string()
@@ -472,17 +479,26 @@ export function createAskBot({
   }
 }
 
-type ChatTools = typeof tools & {
-  askBot: ReturnType<typeof createAskBot>["askBot"]
-}
+type ChatTools = typeof tools &
+  TaskTools & {
+    askBot: ReturnType<typeof createAskBot>["askBot"]
+  }
 
 // For group chats. On a user message, botId is the bot it was addressed to,
 // and relay marks the message the chat sends by itself when a bot calls
 // askBot, which the asked bot answers. On an assistant message, botId is the
 // bot that wrote it, and handedFrom is the bot the person addressed when it was
-// handed over automatically.
+// handed over automatically. taskRunId marks a background task's report: the
+// message the task posts when it ends, and the bot's reply that shows it.
 export type ChatUIMessage = UIMessage<
-  { botId?: string; handedFrom?: string; relay?: boolean },
+  {
+    botId?: string
+    handedFrom?: string
+    relay?: boolean
+    taskRunId?: string
+    // When it was sent, in milliseconds since the epoch
+    createdAt?: number
+  },
   UIDataTypes,
   InferUITools<ChatTools>
 >

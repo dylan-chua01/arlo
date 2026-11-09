@@ -1,7 +1,9 @@
 import { relations } from "drizzle-orm"
 import {
+  boolean,
   index,
   integer,
+  jsonb,
   pgEnum,
   pgTable,
   primaryKey,
@@ -11,6 +13,8 @@ import {
 import { createInsertSchema } from "drizzle-zod"
 import { nanoid } from "nanoid"
 import { z } from "zod"
+
+import { CRON_ERROR, isValidCron, isValidTimezone } from "@/lib/cron"
 
 export const bots = pgTable(
   "bots",
@@ -143,6 +147,123 @@ export const chatFiles = pgTable(
   (table) => [index("chat_files_chat_id_idx").on(table.chatId)]
 )
 
+// Work a bot does on a schedule with nobody in the chat. Each time it fires,
+// a task run does the work and posts the report to the chat.
+export const recurringTasks = pgTable(
+  "recurring_tasks",
+  {
+    id: text()
+      .primaryKey()
+      .$defaultFn(() => nanoid()),
+    // Clerk user ID
+    userId: text("user_id").notNull(),
+    botId: text("bot_id")
+      .notNull()
+      .references(() => bots.id, { onDelete: "cascade" }),
+    // Where the reports go: the bot's own chat, or the group it was set up in
+    chatId: text("chat_id")
+      .notNull()
+      .references(() => chats.id, { onDelete: "cascade" }),
+    title: text().notNull(),
+    // What the bot should do each time, in the person's words
+    instructions: text().notNull(),
+    cron: text().notNull(),
+    // IANA time zone the cron is read in
+    timezone: text().notNull(),
+    // Trigger.dev schedule, created with the task and deleted with it
+    scheduleId: text("schedule_id").notNull(),
+    // Trigger.dev's wording of the cron, like "At 09:00 AM, Monday through Friday"
+    scheduleDescription: text("schedule_description").notNull(),
+    active: boolean().notNull().default(true),
+    nextRunAt: timestamp("next_run_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [index("recurring_tasks_user_id_idx").on(table.userId)]
+)
+
+// Fields a user fills in; the chat, schedule and timestamps are set server-side
+export const insertRecurringTaskSchema = createInsertSchema(recurringTasks, {
+  botId: (schema) => schema.min(1, "Pick a bot."),
+  title: (schema) =>
+    schema
+      .trim()
+      .min(1, "Give the task a name.")
+      .max(80, "Keep it under 80 characters."),
+  instructions: (schema) =>
+    schema
+      .trim()
+      .min(1, "Tell the bot what to do.")
+      .max(4000, "Keep it under 4000 characters."),
+  cron: (schema) => schema.trim().refine(isValidCron, CRON_ERROR),
+  timezone: (schema) =>
+    schema.min(1, "Pick a time zone.").refine(isValidTimezone, {
+      message: "Pick a valid time zone.",
+    }),
+}).pick({
+  botId: true,
+  title: true,
+  instructions: true,
+  cron: true,
+  timezone: true,
+})
+
+export const taskRunStatus = pgEnum("task_run_status", [
+  "queued",
+  "running",
+  "succeeded",
+  "failed",
+])
+
+// What shareFile returns, kept so the report can show the same file cards
+export type SharedFile = {
+  fileId: string
+  name: string
+  mediaType: string
+  size: number
+}
+
+// One piece of background work: a recurring task firing, or a one-off the
+// person asked a bot for in chat. The report is posted to the chat when it ends.
+export const taskRuns = pgTable(
+  "task_runs",
+  {
+    id: text()
+      .primaryKey()
+      .$defaultFn(() => nanoid()),
+    // Clerk user ID
+    userId: text("user_id").notNull(),
+    // Null for one-offs, and once the recurring task is deleted
+    taskId: text("task_id").references(() => recurringTasks.id, {
+      onDelete: "set null",
+    }),
+    botId: text("bot_id")
+      .notNull()
+      .references(() => bots.id, { onDelete: "cascade" }),
+    chatId: text("chat_id")
+      .notNull()
+      .references(() => chats.id, { onDelete: "cascade" }),
+    // Copied from the task, so editing it doesn't rewrite history
+    title: text().notNull(),
+    instructions: text().notNull(),
+    status: taskRunStatus().notNull().default("queued"),
+    // The bot's final message, or why it failed
+    report: text(),
+    files: jsonb().$type<SharedFile[]>().notNull().default([]),
+    // The Trigger.dev run doing the work
+    triggerRunId: text("trigger_run_id"),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index("task_runs_user_id_created_at_idx").on(table.userId, table.createdAt),
+  ]
+)
+
 export const usageMeter = pgEnum("usage_meter", ["ai", "sandbox"])
 
 // Append-only ledger of metered usage. A period's usage is the sum of its
@@ -190,6 +311,14 @@ export const chatsRelations = relations(chats, ({ many }) => ({
   members: many(chatMembers),
 }))
 
+export const recurringTasksRelations = relations(recurringTasks, ({ one }) => ({
+  bot: one(bots, { fields: [recurringTasks.botId], references: [bots.id] }),
+}))
+
+export const taskRunsRelations = relations(taskRuns, ({ one }) => ({
+  bot: one(bots, { fields: [taskRuns.botId], references: [bots.id] }),
+}))
+
 export const chatMembersRelations = relations(chatMembers, ({ one }) => ({
   chat: one(chats, { fields: [chatMembers.chatId], references: [chats.id] }),
   bot: one(bots, { fields: [chatMembers.botId], references: [bots.id] }),
@@ -205,5 +334,8 @@ export type ChatMember = typeof chatMembers.$inferSelect
 export type NewChatMember = typeof chatMembers.$inferInsert
 export type ChatFile = typeof chatFiles.$inferSelect
 export type NewChatFile = typeof chatFiles.$inferInsert
+export type RecurringTask = typeof recurringTasks.$inferSelect
+export type InsertRecurringTask = z.infer<typeof insertRecurringTaskSchema>
+export type TaskRun = typeof taskRuns.$inferSelect
 export type UsageEvent = typeof usageEvents.$inferSelect
 export type NewUsageEvent = typeof usageEvents.$inferInsert

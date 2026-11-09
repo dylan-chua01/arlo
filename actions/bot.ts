@@ -26,6 +26,7 @@ import {
   type Chat,
   type InsertBot,
 } from "@/lib/db/schema"
+import { deleteSchedulesFor } from "@/lib/tasks"
 import { getUsage, isSpent } from "@/lib/usage"
 
 type CreateBotResult =
@@ -184,6 +185,14 @@ export async function deleteBot(botId: string): Promise<DeleteBotResult> {
   if (!isAuthenticated) {
     return { success: false, error: "You need to be signed in." }
   }
+
+  // Its recurring tasks cascade with it, but their schedules live in
+  // Trigger.dev. Owner-scoped, since botId comes from the client.
+  const owned = await db
+    .select({ id: bots.id })
+    .from(bots)
+    .where(and(eq(bots.id, botId), eq(bots.userId, userId)))
+  if (owned.length > 0) await deleteSchedulesFor({ botId })
 
   // Its direct chats go with it; members cascade from both chats and bots
   const [, [bot]] = await db.batch([
