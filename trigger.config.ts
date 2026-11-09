@@ -1,5 +1,6 @@
 import { sentryEsbuildPlugin } from "@sentry/esbuild-plugin";
 import { esbuildPlugin } from "@trigger.dev/build/extensions";
+import { additionalPackages } from "@trigger.dev/build/extensions/core";
 import { defineConfig } from "@trigger.dev/sdk";
 
 export default defineConfig({
@@ -22,10 +23,22 @@ export default defineConfig({
   },
   dirs: ["trigger"],
   build: {
-    // Daytona requires form-data (file uploads) and other packages at runtime
-    // where the bundler can't see them, so install it as a real package
-    external: ["@daytona/sdk"],
     extensions: [
+      // Daytona loads these at runtime with require(), where the bundler can't
+      // see them, so install them in the image. Marking @daytona/sdk external
+      // doesn't work: Trigger.dev finds its cjs/package.json, which has no
+      // name, and bundles it anyway. Keep the versions in step with
+      // `npm ls --depth=1` under @daytona/sdk.
+      additionalPackages({
+        packages: [
+          "busboy@1.6.0", // downloading files
+          "form-data@4.0.6", // uploading files
+          "tar@7.5.22",
+          "fast-glob@3.3.1",
+          "expand-tilde@2.0.2",
+          "@iarna/toml@2.2.5",
+        ],
+      }),
       // Uploads source maps on deploy so task stack traces show original code
       esbuildPlugin(
         sentryEsbuildPlugin({
