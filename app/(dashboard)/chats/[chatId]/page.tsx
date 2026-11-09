@@ -57,7 +57,8 @@ export default async function Page(props: PageProps<"/chats/[chatId]">) {
   const bot = chat.bots[0] ?? null
 
   return (
-    <DesktopPanelProvider>
+    // Open from the start, so you can watch the bot work without asking to
+    <DesktopPanelProvider defaultOpen>
       <ChatFilesProvider>
         {/* The group's inline height: 100% beats a class, so its parent sets the height */}
         <div className="h-svh">
@@ -72,7 +73,7 @@ export default async function Page(props: PageProps<"/chats/[chatId]">) {
               <Chat key={chat.id} id={chat.id} name={name} />
             </ResizablePanel>
             <ResizableHandle />
-            <DesktopPanel bot={bot} defaultSize="0%" minSize="30%" />
+            <DesktopPanel bot={bot} defaultSize="45%" minSize="30%" />
           </ResizablePanelGroup>
         </div>
       </ChatFilesProvider>

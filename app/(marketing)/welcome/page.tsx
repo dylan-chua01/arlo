@@ -4,6 +4,7 @@ import type { Metadata } from "next"
 import Link from "next/link"
 
 import { LogoMark } from "@/components/logo"
+import { DesktopShowcase } from "@/components/marketing/desktop-showcase"
 import { Faq } from "@/components/marketing/faq"
 import { Features, HowItWorks } from "@/components/marketing/features"
 import { Hero } from "@/components/marketing/hero"
@@ -23,6 +24,7 @@ export default function Page() {
     <>
       <Hero />
       <Features />
+      <DesktopShowcase />
       <HowItWorks />
       <Pricing />
       <Faq />

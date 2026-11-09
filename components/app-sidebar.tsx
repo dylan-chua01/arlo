@@ -18,6 +18,7 @@ import {
   SidebarMenuItem,
   SidebarRail,
 } from "@/components/ui/sidebar"
+import { Tutorial } from "@/components/tutorial"
 import { UserMenu } from "@/components/user-menu"
 import { getBots } from "@/queries/bots"
 import { getChats } from "@/queries/chats"
@@ -82,6 +83,9 @@ export async function AppSidebar() {
       </SidebarContent>
       <SidebarFooter>
         <SidebarMenu>
+          <SidebarMenuItem>
+            <Tutorial />
+          </SidebarMenuItem>
           <SidebarMenuItem>
             <SidebarMenuButton
               size="lg"

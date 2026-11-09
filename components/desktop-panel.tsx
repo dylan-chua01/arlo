@@ -49,12 +49,15 @@ function useDesktopPanel() {
 }
 
 export function DesktopPanelProvider({
+  defaultOpen = false,
   children,
 }: {
+  // Should match whether the panel's defaultSize is above zero
+  defaultOpen?: boolean
   children: React.ReactNode
 }) {
   const panelRef = usePanelRef()
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useState(defaultOpen)
 
   return (
     <DesktopPanelContext value={{ panelRef, open, setOpen }}>
