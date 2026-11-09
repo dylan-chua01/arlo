@@ -1,3 +1,4 @@
+import type { Metadata } from "next"
 import { ClerkProvider } from "@clerk/nextjs"
 import { shadcn } from "@clerk/ui/themes"
 import { Geist, Geist_Mono } from "next/font/google"
@@ -14,6 +15,10 @@ const fontMono = Geist_Mono({
   subsets: ["latin"],
   variable: "--font-mono",
 })
+
+export const metadata: Metadata = {
+  title: "Arlo",
+}
 
 export default function RootLayout({
   children,

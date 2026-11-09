@@ -1,8 +1,10 @@
 import { formatDistanceToNowStrict } from "date-fns"
+import Link from "next/link"
 
 import { ChatMenuButton } from "@/components/chat-menu-button"
 import { CreateMenu } from "@/components/create-menu"
 import { GroupChatAvatar } from "@/components/group-chat-avatar"
+import { LogoMark } from "@/components/logo"
 import { SearchCommand } from "@/components/search-command"
 import {
   Sidebar,
@@ -27,7 +29,17 @@ export async function AppSidebar() {
     <Sidebar collapsible="icon">
       <SidebarHeader>
         <SidebarMenu>
-          <SidebarMenuItem className="flex justify-end">
+          <SidebarMenuItem className="flex items-center gap-2 group-data-[collapsible=icon]:flex-col">
+            <SidebarMenuButton
+              render={<Link href="/" />}
+              tooltip="Arlo"
+              className="flex-1 hover:bg-transparent active:bg-transparent"
+            >
+              <LogoMark className="size-5!" />
+              <span className="text-base font-semibold tracking-tight">
+                Arlo
+              </span>
+            </SidebarMenuButton>
             <CreateMenu bots={bots} />
           </SidebarMenuItem>
           <SidebarMenuItem>

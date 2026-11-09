@@ -122,7 +122,7 @@ export async function notify({ key, title, body, onClick }: Notice) {
     const notification = new Notification(title, {
       body,
       tag: key,
-      icon: "/favicon.ico",
+      icon: "/logo.png",
     })
     notification.onclick = () => {
       window.focus()
