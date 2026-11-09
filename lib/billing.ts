@@ -28,16 +28,19 @@ export type PlanLimits = {
 export const PLANS = {
   // $20/month. Full use costs $8 + $3.33 + $1.02 fees, about a 38% margin.
   pro: {
+    price: 20,
     name: "Pro",
     limits: { ai: 8_000_000, sandbox: 50 * 60 * 60, apps: 3 },
   },
   // $50/month. Full use costs $22 + $9.99 + $2.10 fees, about a 32% margin.
   plus: {
+    price: 50,
     name: "Plus",
     limits: { ai: 22_000_000, sandbox: 150 * 60 * 60, apps: 10 },
   },
   // $100/month. Full use costs $45 + $19.98 + $3.90 fees, about a 31% margin.
   max: {
+    price: 100,
     name: "Max",
     limits: { ai: 45_000_000, sandbox: 300 * 60 * 60, apps: 25 },
   },
@@ -46,10 +49,15 @@ export const PLANS = {
   // minutes and their work is driven by the capped AI. At a heavy 450 hours a
   // month it costs $100 + $29.97 + $7.50 fees, about a 31% margin.
   unlimited: {
+    price: 200,
     name: "Unlimited",
     limits: { ai: 100_000_000, sandbox: null, apps: null },
   },
-} satisfies Record<string, { name: string; limits: PlanLimits }>
+} satisfies Record<
+  string,
+  // price is in dollars a month and must match the plan's price in Clerk
+  { price: number; name: string; limits: PlanLimits }
+>
 
 export type PlanSlug = keyof typeof PLANS
 

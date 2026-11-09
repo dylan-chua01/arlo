@@ -8,7 +8,7 @@ function LogoMark({ className, ...props }: React.ComponentProps<"svg">) {
       xmlns="http://www.w3.org/2000/svg"
       viewBox="208 208 608 608"
       aria-hidden="true"
-      className={cn("size-6 shrink-0 text-[#D87A4E]", className)}
+      className={cn("size-6 shrink-0 text-brand", className)}
       {...props}
     >
       <path

@@ -6,6 +6,8 @@
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
+    --color-brand: var(--brand);
+    --color-brand-foreground: var(--brand-foreground);
     --font-heading: var(--font-sans);
     --font-sans: var(--font-sans);
     --color-sidebar-ring: var(--sidebar-ring);
@@ -49,6 +51,9 @@
 }
 
 :root {
+    /* Arlo orange, from the logo */
+    --brand: oklch(0.675 0.131 44.9);
+    --brand-foreground: oklch(0.985 0 0);
     --background: oklch(1 0 0);
     --foreground: oklch(0.145 0 0);
     --card: oklch(1 0 0);
@@ -84,6 +89,8 @@
 }
 
 .dark {
+    --brand: oklch(0.72 0.13 44.9);
+    --brand-foreground: oklch(0.145 0 0);
     --background: oklch(0.145 0 0);
     --foreground: oklch(0.985 0 0);
     --card: oklch(0.205 0 0);

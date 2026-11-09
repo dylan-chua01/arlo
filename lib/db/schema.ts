@@ -303,6 +303,50 @@ export const usageEvents = pgTable(
   ]
 )
 
+export const contactTopic = pgEnum("contact_topic", [
+  "question",
+  "billing",
+  "support",
+  "feedback",
+])
+
+// Sent from the public contact page; userId is set when the sender is signed in
+export const contactMessages = pgTable("contact_messages", {
+  id: text()
+    .primaryKey()
+    .$defaultFn(() => nanoid()),
+  // Clerk user ID
+  userId: text("user_id"),
+  name: text().notNull(),
+  email: text().notNull(),
+  topic: contactTopic().notNull().default("question"),
+  message: text().notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+})
+
+// Fields the sender fills in; id, userId and createdAt are set server-side
+export const insertContactMessageSchema = createInsertSchema(contactMessages, {
+  name: (schema) =>
+    schema
+      .trim()
+      .min(1, "Tell us your name.")
+      .max(100, "Keep it under 100 characters."),
+  email: (schema) =>
+    schema
+      .trim()
+      .max(200, "Keep it under 200 characters.")
+      .pipe(z.email("Enter a valid email address.")),
+  message: (schema) =>
+    schema
+      .trim()
+      .min(10, "Tell us a little more.")
+      .max(5000, "Keep it under 5000 characters."),
+})
+  .pick({ name: true, email: true, topic: true, message: true })
+  .required({ topic: true })
+
 export const botsRelations = relations(bots, ({ many }) => ({
   memberships: many(chatMembers),
 }))
@@ -339,3 +383,5 @@ export type InsertRecurringTask = z.infer<typeof insertRecurringTaskSchema>
 export type TaskRun = typeof taskRuns.$inferSelect
 export type UsageEvent = typeof usageEvents.$inferSelect
 export type NewUsageEvent = typeof usageEvents.$inferInsert
+export type ContactMessage = typeof contactMessages.$inferSelect
+export type InsertContactMessage = z.infer<typeof insertContactMessageSchema>
