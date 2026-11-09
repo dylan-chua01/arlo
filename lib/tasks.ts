@@ -2,6 +2,7 @@ import { schedules, tasks } from "@trigger.dev/sdk"
 import { and, eq } from "drizzle-orm"
 import { nanoid } from "nanoid"
 
+import { describeSchedule } from "@/lib/cron"
 import { db } from "@/lib/db"
 import {
   recurringTasks,
@@ -43,7 +44,8 @@ export async function createRecurringTask(
         ...values,
         id,
         scheduleId: schedule.id,
-        scheduleDescription: schedule.generator.description,
+        scheduleDescription:
+          describeSchedule(values.cron) ?? schedule.generator.description,
         nextRunAt: schedule.nextRun ?? null,
       })
       .returning()
@@ -71,7 +73,8 @@ export async function updateRecurringTask(
     .update(recurringTasks)
     .set({
       ...values,
-      scheduleDescription: schedule.generator.description,
+      scheduleDescription:
+        describeSchedule(values.cron) ?? schedule.generator.description,
       nextRunAt: task.active ? (schedule.nextRun ?? null) : null,
     })
     .where(eq(recurringTasks.id, task.id))
@@ -170,7 +173,12 @@ export async function startTaskRun(
         idempotencyKey: `task-run:${id}`,
         // One at a time per bot, since they share its sandbox
         concurrencyKey: values.botId,
-        tags: [`bot:${values.botId}`, `chat:${values.chatId}`],
+        // user: lets the person's browser hear when it finishes
+        tags: [
+          `user:${values.userId}`,
+          `bot:${values.botId}`,
+          `chat:${values.chatId}`,
+        ],
       }
     )
     const [started] = await db

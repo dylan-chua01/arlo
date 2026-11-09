@@ -1,6 +1,7 @@
 import { cookies } from "next/headers"
 
 import { AppSidebar } from "@/components/app-sidebar"
+import { TaskNotifications } from "@/components/task-notifications"
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
 
 export default async function DashboardLayout({
@@ -15,6 +16,7 @@ export default async function DashboardLayout({
     <SidebarProvider defaultOpen={defaultOpen}>
       <AppSidebar />
       <SidebarInset>{children}</SidebarInset>
+      <TaskNotifications />
     </SidebarProvider>
   )
 }

@@ -134,6 +134,12 @@ export const botTask = schemaTask({
       })
       .where(eq(taskRuns.id, taskRunId))
 
+    // Read by the browser to notify the person when it finishes
+    metadata
+      .set("title", taskRun.title)
+      .set("botName", bot.name)
+      .set("chatId", taskRun.chatId)
+
     const task = taskRun.taskId
       ? await db.query.recurringTasks.findFirst({
           where: (tasks, { eq }) => eq(tasks.id, taskRun.taskId!),
@@ -229,6 +235,7 @@ export const botTask = schemaTask({
       .set({ status, report, files, finishedAt: new Date() })
       .where(eq(taskRuns.id, taskRunId))
       .returning()
+    metadata.set("outcome", status)
     await deliverReport(finished, status)
 
     Sentry.logger.info("Task run finished", {

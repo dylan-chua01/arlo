@@ -4,6 +4,7 @@ import { useId, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import { useChat } from "@ai-sdk/react"
 import { useAuth } from "@clerk/nextjs"
+import { useRouter } from "next/navigation"
 import {
   ArrowRightIcon,
   ExternalLinkIcon,
@@ -91,6 +92,7 @@ import {
   parseFileUrl,
   toFileUrl,
 } from "@/lib/files"
+import { isAway, notify } from "@/lib/notify"
 import type { chatAgent } from "@/trigger/chat"
 import type { ChatUIMessage } from "@/trigger/tools"
 
@@ -104,9 +106,12 @@ type ChatBot = Pick<Bot, "id" | "name" | "avatar">
 
 export function Chat({
   id,
+  name,
   bots,
 }: {
   id: string
+  // Who's replying, for notifications when no bot is picked
+  name: string
   // A group chat's bots, to pick who each message is for
   bots?: ChatBot[]
 }) {
@@ -135,6 +140,7 @@ export function Chat({
   return (
     <ChatView
       id={id}
+      name={name}
       transport={transport}
       // The transcript is written by the agent, so it carries its tool parts
       initialMessages={messages as ChatUIMessage[]}
@@ -151,6 +157,7 @@ export function Chat({
 
 function ChatView({
   id,
+  name,
   transport,
   initialMessages,
   bots,
@@ -159,6 +166,7 @@ function ChatView({
   botPicker,
 }: {
   id: string
+  name: string
   transport: TriggerChatTransport
   initialMessages: ChatUIMessage[]
   bots?: ChatBot[]
@@ -169,6 +177,7 @@ function ChatView({
   botPicker?: React.ReactNode
 }) {
   const { has } = useAuth()
+  const router = useRouter()
   const [mentionAnchor, setMentionAnchor] = useState<HTMLDivElement | null>(
     null
   )
@@ -194,7 +203,19 @@ function ChatView({
       // when the person stopped it, or it failed.
       if (isAbort || isError || isDisconnect) return
       const asked = findAskedBot(message)
-      if (!asked) return
+      if (!asked) {
+        // The conversation is done for now, so tell the person if they've
+        // looked away while waiting
+        if (isAway()) {
+          void notify({
+            key: `chat-reply:${message.id}`,
+            title: `${bots?.find((bot) => bot.id === botId)?.name ?? name} replied`,
+            body: replyPreview(message),
+            onClick: () => router.push(`/chats/${id}`),
+          })
+        }
+        return
+      }
       // useChat is still wrapping up this request when onFinish runs
       setTimeout(() =>
         sendMessage({
@@ -1057,4 +1078,15 @@ const KEY_NAMES: Record<string, string> = {
 
 function keyName(key?: string) {
   return key && (KEY_NAMES[key] ?? key)
+}
+
+// The start of a reply's text, short enough for a desktop notification
+function replyPreview(message: ChatUIMessage) {
+  const text = message.parts
+    .flatMap((part) => (part.type === "text" ? [part.text] : []))
+    .join(" ")
+    .replace(/[#*_`>\[\]]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+  return text.length > 120 ? `${text.slice(0, 117)}…` : text || undefined
 }

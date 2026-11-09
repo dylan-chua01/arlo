@@ -48,7 +48,7 @@ export default async function Page(props: PageProps<"/chats/[chatId]">) {
           >
             <ChatFilesTrigger className="ms-auto text-muted-foreground" />
           </ChatHeader>
-          <Chat key={chat.id} id={chat.id} bots={chat.bots} />
+          <Chat key={chat.id} id={chat.id} name={name} bots={chat.bots} />
         </div>
       </ChatFilesProvider>
     )
@@ -69,7 +69,7 @@ export default async function Page(props: PageProps<"/chats/[chatId]">) {
                   <DesktopPanelTrigger />
                 </div>
               </ChatHeader>
-              <Chat key={chat.id} id={chat.id} />
+              <Chat key={chat.id} id={chat.id} name={name} />
             </ResizablePanel>
             <ResizableHandle />
             <DesktopPanel bot={bot} defaultSize="0%" minSize="30%" />
