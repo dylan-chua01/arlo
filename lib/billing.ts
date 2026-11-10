@@ -19,39 +19,42 @@ export type PlanLimits = {
 // Paid plans in Clerk Billing, by slug, from smallest to largest. Each one
 // must exist in Clerk with the same slug and both features above.
 //
-// Prices are set for about a 30% margin when a plan's allowance is fully
-// used. Costs per period: AI at model list price, sandbox time at Daytona's
+// Prices are set for about a 26-28% margin when a plan's allowance is fully
+// used, which few people do. Prompt caching (CACHE_OPTIONS in trigger/chat.ts)
+// makes each dollar of AI go several times further than list-price input would.
+//
+// Costs per period: AI at model list price, sandbox time at Daytona's
 // $0.0666/hour for our 1 vCPU / 1 GiB sandboxes, and Clerk Billing's 0.7% plus
 // Stripe's 2.9% + 30¢ on each payment. App connections cost us next to nothing
 // (Composio's first 1,000 are free, then 10¢ once), so apps is a plan perk;
 // the actions bots take in apps are paid for by the AI allowance that drives them.
 export const PLANS = {
-  // $20/month. Full use costs $8 + $3.33 + $1.02 fees, about a 38% margin.
+  // $20/month. Full use costs $10 + $3.33 + $1.02 fees, about a 28% margin.
   pro: {
     price: 20,
     name: "Pro",
-    limits: { ai: 8_000_000, sandbox: 50 * 60 * 60, apps: 3 },
+    limits: { ai: 10_000_000, sandbox: 50 * 60 * 60, apps: 3 },
   },
-  // $50/month. Full use costs $22 + $9.99 + $2.10 fees, about a 32% margin.
+  // $50/month. Full use costs $25 + $9.99 + $2.10 fees, about a 26% margin.
   plus: {
     price: 50,
     name: "Plus",
-    limits: { ai: 22_000_000, sandbox: 150 * 60 * 60, apps: 10 },
+    limits: { ai: 25_000_000, sandbox: 150 * 60 * 60, apps: 10 },
   },
-  // $100/month. Full use costs $45 + $19.98 + $3.90 fees, about a 31% margin.
+  // $100/month. Full use costs $50 + $19.98 + $3.90 fees, about a 26% margin.
   max: {
     price: 100,
     name: "Max",
-    limits: { ai: 45_000_000, sandbox: 300 * 60 * 60, apps: 25 },
+    limits: { ai: 50_000_000, sandbox: 300 * 60 * 60, apps: 25 },
   },
   // $200/month. AI is the one cost that grows without bound, so it keeps an
   // allowance. Sandbox time is unlimited because sandboxes stop after 10 idle
   // minutes and their work is driven by the capped AI. At a heavy 450 hours a
-  // month it costs $100 + $29.97 + $7.50 fees, about a 31% margin.
+  // month it costs $110 + $29.97 + $7.50 fees, about a 26% margin.
   unlimited: {
     price: 200,
     name: "Unlimited",
-    limits: { ai: 100_000_000, sandbox: null, apps: null },
+    limits: { ai: 110_000_000, sandbox: null, apps: null },
   },
 } satisfies Record<
   string,

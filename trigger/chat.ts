@@ -44,6 +44,14 @@ import { createTaskTools, TASKS_PROMPT } from "./task-tools"
 export const CHAT_MODEL = "claude-sonnet-5"
 const ROUTER_MODEL = "claude-haiku-5-5"
 
+// Turns on Anthropic's automatic prompt caching. Every step of a tool loop
+// resends the tools, system prompt and whole conversation, so without it each
+// step pays full price for all of that again. With it, the repeated part costs
+// a tenth as much (see MODEL_PRICES in lib/usage.ts).
+export const CACHE_OPTIONS = {
+  anthropic: { cacheControl: { type: "ephemeral" } },
+} as const
+
 // The user whose plan pays for the chat's turns
 async function getChatOwner(chatId: string) {
   const chat = await db.query.chats.findFirst({
@@ -665,6 +673,7 @@ export const chatAgent = chat
           ...(askBot && { askBot: askBot.askBot }),
         },
         abortSignal: signal,
+        providerOptions: CACHE_OPTIONS,
         // Each step is its own model call, so each is written to the ledger
         onStepFinish: async ({ usage: stepUsage }) => {
           aiBudget -= await recordAiUsage(

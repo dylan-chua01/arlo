@@ -21,6 +21,7 @@ import { getUsage, isSpent, recordAiUsage } from "@/lib/usage"
 
 import {
   buildSystemPrompt,
+  CACHE_OPTIONS,
   CHAT_MODEL,
   getAppTools,
   type chatAgent,
@@ -183,6 +184,7 @@ export const botTask = schemaTask({
         prompt: taskRun.instructions,
         tools: { ...backgroundTools, ...appTools?.tools },
         abortSignal: signal,
+        providerOptions: CACHE_OPTIONS,
         onStepFinish: async ({ usage: stepUsage }) => {
           aiBudget -= await recordAiUsage(
             { userId: taskRun.userId, chatId: taskRun.chatId, botId: bot.id },
