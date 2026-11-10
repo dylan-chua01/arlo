@@ -14,6 +14,7 @@ import { createInsertSchema } from "drizzle-zod"
 import { nanoid } from "nanoid"
 import { z } from "zod"
 
+import { formatTopUpAmount, TOP_UP_BOUNDS } from "@/lib/billing"
 import { CRON_ERROR, isValidCron, isValidTimezone } from "@/lib/cron"
 
 export const bots = pgTable(
@@ -303,6 +304,46 @@ export const usageEvents = pgTable(
   ]
 )
 
+// One-time top-ups bought with Stripe Checkout. Each adds to its meter's
+// allowance for the usage month it was bought in (see getUsage in lib/usage.ts).
+export const topUps = pgTable(
+  "top_ups",
+  {
+    // The Stripe Checkout Session ID, so a payment is only ever granted once
+    id: text().primaryKey(),
+    // Clerk user ID
+    userId: text("user_id").notNull(),
+    meter: usageMeter().notNull(),
+    // Same units as usage_events.amount: millionths of a dollar or seconds
+    amount: integer().notNull(),
+    // What they paid, in cents
+    price: integer().notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index("top_ups_user_id_created_at_idx").on(table.userId, table.createdAt),
+  ]
+)
+
+// What someone asks to top up. amount is in ledger units; the form shows it
+// in dollars or hours (TOP_UP_UNITS).
+export const insertTopUpSchema = createInsertSchema(topUps, {
+  amount: (schema) => schema.int(),
+})
+  .pick({ meter: true, amount: true })
+  .superRefine(({ meter, amount }, ctx) => {
+    const { min, max } = TOP_UP_BOUNDS[meter]
+    if (amount < min || amount > max) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["amount"],
+        message: `Enter between ${formatTopUpAmount(meter, min)} and ${formatTopUpAmount(meter, max)}.`,
+      })
+    }
+  })
+
 export const contactTopic = pgEnum("contact_topic", [
   "question",
   "billing",
@@ -385,3 +426,4 @@ export type UsageEvent = typeof usageEvents.$inferSelect
 export type NewUsageEvent = typeof usageEvents.$inferInsert
 export type ContactMessage = typeof contactMessages.$inferSelect
 export type InsertContactMessage = z.infer<typeof insertContactMessageSchema>
+export type InsertTopUp = z.infer<typeof insertTopUpSchema>

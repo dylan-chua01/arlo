@@ -20,10 +20,18 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from "@/components/ui/empty"
+import { CheckoutReturn } from "@/components/checkout-return"
+import { TopUpDialog } from "@/components/top-up-dialog"
 import { Progress, ProgressLabel } from "@/components/ui/progress"
-import { MICROS_PER_DOLLAR, PLANS } from "@/lib/billing"
+import {
+  getTopUpRate,
+  MICROS_PER_DOLLAR,
+  PLANS,
+  type Meter,
+  type PlanSlug,
+} from "@/lib/billing"
 import { getConnectedApps } from "@/lib/composio"
-import { getUsage } from "@/lib/usage"
+import { getUsage, type MeterUsage } from "@/lib/usage"
 
 const dollars = new Intl.NumberFormat("en-US", {
   style: "currency",
@@ -33,8 +41,14 @@ const hours = new Intl.NumberFormat("en-US", { maximumFractionDigits: 1 })
 const count = new Intl.NumberFormat("en-US")
 
 // Reached from the user button's menu, not the sidebar
-export default async function Page() {
+export default async function Page({
+  searchParams,
+}: {
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>
+}) {
   const { userId } = await auth.protect()
+  // Set by Stripe when it sends a buyer back from a top-up checkout
+  const { checkout } = await searchParams
   const [usage, connectedApps] = await Promise.all([
     getUsage(userId),
     // The meter is left out rather than failing the page
@@ -44,9 +58,14 @@ export default async function Page() {
     }),
   ])
 
+  const checkoutReturn = typeof checkout === "string" && (
+    <CheckoutReturn sessionId={checkout} />
+  )
+
   if (!usage) {
     return (
       <div className="flex min-h-svh">
+        {checkoutReturn}
         <Empty>
           <EmptyHeader>
             <EmptyMedia variant="icon">
@@ -70,9 +89,11 @@ export default async function Page() {
 
   const { period } = usage
   const plan = PLANS[usage.plan]
+  const resetsIn = formatDistanceToNowStrict(period.end)
 
   return (
     <div className="mx-auto flex min-h-svh w-full max-w-2xl flex-col gap-6 px-4 py-16">
+      {checkoutReturn}
       <div className="flex flex-col gap-1">
         <h1 className="text-2xl font-semibold tracking-tight">Usage</h1>
         <p className="text-muted-foreground">
@@ -82,7 +103,7 @@ export default async function Page() {
             title={period.end.toUTCString()}
             className="font-medium text-foreground"
           >
-            {formatDistanceToNowStrict(period.end)}
+            {resetsIn}
           </time>
           . Switching plans changes your limits right away and keeps what
           you&apos;ve used so far.
@@ -104,21 +125,25 @@ export default async function Page() {
           </CardAction>
         </CardHeader>
         <CardContent className="flex flex-col gap-6">
-          <Meter
+          <UsageMeter
+            plan={usage.plan}
+            meter="ai"
             label="AI usage"
             description="Spent by your bots' replies and by routing group chat messages."
-            used={usage.ai.used / MICROS_PER_DOLLAR}
-            limit={usage.ai.limit / MICROS_PER_DOLLAR}
+            usage={usage.ai}
+            unit={MICROS_PER_DOLLAR}
             format={(value) => dollars.format(value)}
+            resetsIn={resetsIn}
           />
-          <Meter
+          <UsageMeter
+            plan={usage.plan}
+            meter="sandbox"
             label="Sandbox time"
             description="Counted while a bot's sandbox is running, including while its desktop is open."
-            used={usage.sandbox.used / 3600}
-            limit={
-              usage.sandbox.limit === null ? null : usage.sandbox.limit / 3600
-            }
+            usage={usage.sandbox}
+            unit={3600}
             format={(value) => `${hours.format(value)} hours`}
+            resetsIn={resetsIn}
           />
           {connectedApps && (
             <Meter
@@ -131,6 +156,57 @@ export default async function Page() {
           )}
         </CardContent>
       </Card>
+    </div>
+  )
+}
+
+// A metered allowance with this month's top-ups, and a way to top up
+function UsageMeter({
+  plan,
+  meter,
+  label,
+  description,
+  usage,
+  unit,
+  format,
+  resetsIn,
+}: {
+  plan: PlanSlug
+  meter: Meter
+  label: string
+  description: string
+  usage: MeterUsage
+  // How many of the ledger's units make one shown unit
+  unit: number
+  format: (value: number) => string
+  resetsIn: string
+}) {
+  const { used, limit, topUp } = usage
+  const rate = getTopUpRate(plan, meter)
+
+  return (
+    <div className="flex flex-col gap-3">
+      <Meter
+        label={label}
+        description={description}
+        used={used / unit}
+        limit={limit === null ? null : (limit + topUp) / unit}
+        format={format}
+      />
+      {rate && (
+        <div className="flex items-center gap-3">
+          <p className="text-xs text-muted-foreground">
+            {topUp > 0
+              ? `Includes ${format(topUp / unit)} topped up this month.`
+              : "Running low? A top-up costs 30% less than getting the same from a subscription."}
+          </p>
+          <TopUpDialog rate={rate} resetsIn={resetsIn}>
+            <Button variant="outline" size="sm" className="ml-auto shrink-0">
+              Top up
+            </Button>
+          </TopUpDialog>
+        </div>
+      )}
     </div>
   )
 }

@@ -131,7 +131,8 @@ function Pricing() {
           })}
         </div>
         <p className="text-center text-sm text-pretty text-muted-foreground">
-          Usage resets every month. Upgrade any time and keep what you&apos;ve
+          Usage resets every month. Need more for just one month? Top up for
+          30% less than upgrading. Upgrade any time and keep what you&apos;ve
           used so far; downgrades start when your billing period ends.
         </p>
       </div>

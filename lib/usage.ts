@@ -3,9 +3,9 @@ import type { LanguageModelUsage } from "ai"
 import { addMonths, differenceInCalendarMonths } from "date-fns"
 import { and, eq, gte, lt, sql } from "drizzle-orm"
 
-import { isPlanSlug, PLANS, type PlanSlug } from "@/lib/billing"
+import { isPlanSlug, PLANS, type Meter, type PlanSlug } from "@/lib/billing"
 import { db } from "@/lib/db"
-import { usageEvents, type NewUsageEvent } from "@/lib/db/schema"
+import { topUps, usageEvents, type NewUsageEvent } from "@/lib/db/schema"
 
 // The backend client, not @clerk/nextjs, so Trigger.dev tasks can use this too
 const clerk = createClerkClient({ secretKey: process.env.CLERK_SECRET_KEY })
@@ -34,12 +34,20 @@ export type BillingPeriod = { start: Date; end: Date }
 
 export type Plan = { slug: PlanSlug; period: BillingPeriod }
 
+// used is this month's total and limit the plan's monthly allowance. topUp is
+// what this month's top-ups add on top of limit.
+export type MeterUsage = {
+  used: number
+  // Null is unlimited
+  limit: number | null
+  topUp: number
+}
+
 export type Usage = {
   plan: PlanSlug
   period: BillingPeriod
-  ai: { used: number; limit: number }
-  // A null limit is unlimited
-  sandbox: { used: number; limit: number | null }
+  ai: MeterUsage & { limit: number }
+  sandbox: MeterUsage
 }
 
 // The month of usage that contains now. Months count from a fixed anchor,
@@ -93,43 +101,69 @@ export async function getPlan(userId: string): Promise<Plan | null> {
 }
 
 // The ledger summed over the current usage month, against the plan's limits
+// plus the month's top-ups
 export async function getUsage(userId: string): Promise<Usage | null> {
   const plan = await getPlan(userId)
   if (!plan) return null
   const { period } = plan
   const { limits } = PLANS[plan.slug]
 
-  const totals = await db
-    .select({
-      meter: usageEvents.meter,
-      total: sql<number>`coalesce(sum(${usageEvents.amount}), 0)`.mapWith(
-        Number
-      ),
-    })
-    .from(usageEvents)
-    .where(
-      and(
-        eq(usageEvents.userId, userId),
-        gte(usageEvents.createdAt, period.start),
-        lt(usageEvents.createdAt, period.end)
+  const [totals, toppedUp] = await Promise.all([
+    db
+      .select({
+        meter: usageEvents.meter,
+        total: sql<number>`coalesce(sum(${usageEvents.amount}), 0)`.mapWith(
+          Number
+        ),
+      })
+      .from(usageEvents)
+      .where(
+        and(
+          eq(usageEvents.userId, userId),
+          gte(usageEvents.createdAt, period.start),
+          lt(usageEvents.createdAt, period.end)
+        )
       )
-    )
-    .groupBy(usageEvents.meter)
-  const used = (meter: NewUsageEvent["meter"]) =>
-    totals.find((row) => row.meter === meter)?.total ?? 0
+      .groupBy(usageEvents.meter),
+    db
+      .select({
+        meter: topUps.meter,
+        total: sql<number>`coalesce(sum(${topUps.amount}), 0)`.mapWith(Number),
+      })
+      .from(topUps)
+      .where(
+        and(
+          eq(topUps.userId, userId),
+          gte(topUps.createdAt, period.start),
+          lt(topUps.createdAt, period.end)
+        )
+      )
+      .groupBy(topUps.meter),
+  ])
+  const sum = (rows: typeof totals, meter: Meter) =>
+    rows.find((row) => row.meter === meter)?.total ?? 0
 
   return {
     plan: plan.slug,
     period,
-    ai: { used: used("ai"), limit: limits.ai },
-    sandbox: { used: used("sandbox"), limit: limits.sandbox },
+    ai: {
+      used: sum(totals, "ai"),
+      limit: limits.ai,
+      topUp: sum(toppedUp, "ai"),
+    },
+    sandbox: {
+      used: sum(totals, "sandbox"),
+      limit: limits.sandbox,
+      topUp: sum(toppedUp, "sandbox"),
+    },
   }
 }
 
-// Whether a metered allowance is spent. An unlimited one never is.
-export function isSpent(usage: Usage, meter: "ai" | "sandbox") {
-  const { used, limit } = usage[meter]
-  return limit !== null && used >= limit
+// Whether a metered allowance and its top-ups are spent. An unlimited one
+// never is.
+export function isSpent(usage: Usage, meter: Meter) {
+  const { used, limit, topUp } = usage[meter]
+  return limit !== null && used >= limit + topUp
 }
 
 export async function recordUsage(event: NewUsageEvent) {
