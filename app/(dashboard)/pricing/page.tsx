@@ -17,8 +17,7 @@ export default async function Page() {
         </p>
         <p className="text-sm text-muted-foreground">
           Upgrades start right away and keep what you&apos;ve used this month.
-          Downgrades start when your current billing period ends. Only need a
-          little more? Buy an add-on from the Usage page instead.
+          Downgrades start when your current billing period ends.
         </p>
       </div>
       <div className="w-full max-w-6xl">

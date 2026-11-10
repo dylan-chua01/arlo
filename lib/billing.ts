@@ -64,71 +64,13 @@ export const PLANS = {
 
 export type PlanSlug = keyof typeof PLANS
 
-export type Meter = "ai" | "sandbox"
-
-// One-time add-on packs, bought with Stripe Checkout (Clerk Billing only sells
-// subscriptions). A pack is spent only after the month's plan allowance runs
-// out, and whatever's left carries over to later months.
-//
-// Each pack keeps about a 20% margin after Stripe's 2.9% + 30¢, the same as the
-// plans, so per unit it costs about what a plan does. What makes it cheaper is
-// that it's sized to the gap: every pack costs at least 30% less than the
-// cheapest upgrade that would cover the same amount for one month, on every
-// plan that can buy it. Against the upgrades (price difference → extra AI,
-// extra hours): Pro → Plus $30 → $16, 100h; Pro → Max $80 → $44, 250h;
-// Plus → Max $50 → $28, 150h; Max → Unlimited $100 → $66, unlimited hours.
-export const PACKS = {
-  // Costs $5 + $0.50 fees, a 21% margin. Upgrading costs $30 or more: 77% less.
-  "ai-5": { meter: "ai", amount: 5_000_000, price: 7 },
-  // Costs $12 + $0.76 fees, a 20% margin. Pro → Plus is $30: 47% less.
-  "ai-12": { meter: "ai", amount: 12_000_000, price: 16 },
-  // Costs $25 + $1.26 fees, a 20% margin. Plus → Max is $50: 34% less, and
-  // Pro → Max is $80: 59% less.
-  "ai-25": { meter: "ai", amount: 25_000_000, price: 33 },
-  // Costs $1.67 + $0.39 fees, a 32% margin. Upgrading costs $30 or more: 90% less.
-  "sandbox-25": { meter: "sandbox", amount: 25 * 60 * 60, price: 3 },
-  // Costs $6.66 + $0.56 fees, a 20% margin. Pro → Plus is $30: 70% less.
-  "sandbox-100": { meter: "sandbox", amount: 100 * 60 * 60, price: 9 },
-  // Costs $16.65 + $0.94 fees, a 20% margin. Pro → Max is $80: 73% less, and
-  // Plus or Max → Unlimited is $100 or more: 78% less.
-  "sandbox-250": { meter: "sandbox", amount: 250 * 60 * 60, price: 22 },
-} satisfies Record<
-  string,
-  // amount is in the meter's units (see PlanLimits); price is in dollars
-  { meter: Meter; amount: number; price: number }
->
-
-export type PackSlug = keyof typeof PACKS
-
-export function isPackSlug(slug: string | undefined): slug is PackSlug {
-  return !!slug && Object.hasOwn(PACKS, slug)
-}
-
-// Unlimited sandbox time has nothing to add to
-export function canBuyPack(plan: PlanSlug, pack: PackSlug) {
-  return PLANS[plan].limits[PACKS[pack].meter] !== null
-}
-
-const packDollars = new Intl.NumberFormat("en-US", {
-  style: "currency",
-  currency: "USD",
-  maximumFractionDigits: 0,
-})
-
-export function packName(pack: PackSlug) {
-  const { meter, amount } = PACKS[pack]
-  return meter === "ai"
-    ? `${packDollars.format(amount / MICROS_PER_DOLLAR)} of AI usage`
-    : `${amount / 3600} hours of sandbox time`
-}
-
 export function isPlanSlug(slug: string | undefined): slug is PlanSlug {
   return !!slug && Object.hasOwn(PLANS, slug)
 }
 
 export const UPGRADE_ERROR = "Bots and sandboxes need a paid plan."
 export const USAGE_LIMIT_ERROR =
-  "You've used your plan's allowance for this month. Buy an add-on or upgrade your plan for more, or wait for it to reset."
+  "You've used your plan's allowance for this month. Upgrade your plan for more, or wait for it to reset."
 
 // Returned by actions a free user can't run, so the client can point them to /pricing
 export type UpgradeRequired = {
