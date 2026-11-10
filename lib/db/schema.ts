@@ -303,6 +303,46 @@ export const usageEvents = pgTable(
   ]
 )
 
+// Add-on packs bought with a one-time Stripe payment. Each one adds to a
+// meter's allowance, is spent only once the plan's own allowance for the month
+// runs out, and carries over until it's used (see getUsage in lib/usage.ts).
+export const creditPurchases = pgTable(
+  "credit_purchases",
+  {
+    // The Stripe Checkout Session ID, so a purchase is only ever granted once
+    id: text().primaryKey(),
+    // Clerk user ID
+    userId: text("user_id").notNull(),
+    meter: usageMeter().notNull(),
+    // Same units as usage_events.amount: millionths of a dollar or seconds
+    amount: integer().notNull(),
+    pack: text().notNull(),
+    // What they paid, in cents
+    price: integer().notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [index("credit_purchases_user_id_idx").on(table.userId)]
+)
+
+// The plan limits each usage month ran on. A month's last write wins, which
+// matches limits changing right away on a plan switch. Carried-over add-on
+// credit is worked out from these, since Clerk doesn't keep past limits.
+export const usageMonths = pgTable(
+  "usage_months",
+  {
+    // Clerk user ID
+    userId: text("user_id").notNull(),
+    start: timestamp({ withTimezone: true }).notNull(),
+    end: timestamp({ withTimezone: true }).notNull(),
+    aiLimit: integer("ai_limit").notNull(),
+    // Null is unlimited
+    sandboxLimit: integer("sandbox_limit"),
+  },
+  (table) => [primaryKey({ columns: [table.userId, table.start] })]
+)
+
 export const contactTopic = pgEnum("contact_topic", [
   "question",
   "billing",
@@ -385,3 +425,5 @@ export type UsageEvent = typeof usageEvents.$inferSelect
 export type NewUsageEvent = typeof usageEvents.$inferInsert
 export type ContactMessage = typeof contactMessages.$inferSelect
 export type InsertContactMessage = z.infer<typeof insertContactMessageSchema>
+export type CreditPurchase = typeof creditPurchases.$inferSelect
+export type NewCreditPurchase = typeof creditPurchases.$inferInsert

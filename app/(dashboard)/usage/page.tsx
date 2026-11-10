@@ -20,10 +20,12 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from "@/components/ui/empty"
+import { BuyPackDialog } from "@/components/buy-pack-dialog"
+import { CheckoutReturn } from "@/components/checkout-return"
 import { Progress, ProgressLabel } from "@/components/ui/progress"
-import { MICROS_PER_DOLLAR, PLANS } from "@/lib/billing"
+import { MICROS_PER_DOLLAR, PLANS, type Meter } from "@/lib/billing"
 import { getConnectedApps } from "@/lib/composio"
-import { getUsage } from "@/lib/usage"
+import { creditLeft, getUsage, type MeterUsage } from "@/lib/usage"
 
 const dollars = new Intl.NumberFormat("en-US", {
   style: "currency",
@@ -33,8 +35,14 @@ const hours = new Intl.NumberFormat("en-US", { maximumFractionDigits: 1 })
 const count = new Intl.NumberFormat("en-US")
 
 // Reached from the user button's menu, not the sidebar
-export default async function Page() {
+export default async function Page({
+  searchParams,
+}: {
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>
+}) {
   const { userId } = await auth.protect()
+  // Set by Stripe when it sends a buyer back from an add-on checkout
+  const { checkout } = await searchParams
   const [usage, connectedApps] = await Promise.all([
     getUsage(userId),
     // The meter is left out rather than failing the page
@@ -44,9 +52,14 @@ export default async function Page() {
     }),
   ])
 
+  const checkoutReturn = typeof checkout === "string" && (
+    <CheckoutReturn sessionId={checkout} />
+  )
+
   if (!usage) {
     return (
       <div className="flex min-h-svh">
+        {checkoutReturn}
         <Empty>
           <EmptyHeader>
             <EmptyMedia variant="icon">
@@ -73,6 +86,7 @@ export default async function Page() {
 
   return (
     <div className="mx-auto flex min-h-svh w-full max-w-2xl flex-col gap-6 px-4 py-16">
+      {checkoutReturn}
       <div className="flex flex-col gap-1">
         <h1 className="text-2xl font-semibold tracking-tight">Usage</h1>
         <p className="text-muted-foreground">
@@ -104,20 +118,20 @@ export default async function Page() {
           </CardAction>
         </CardHeader>
         <CardContent className="flex flex-col gap-6">
-          <Meter
+          <UsageMeter
+            meter="ai"
             label="AI usage"
             description="Spent by your bots' replies and by routing group chat messages."
-            used={usage.ai.used / MICROS_PER_DOLLAR}
-            limit={usage.ai.limit / MICROS_PER_DOLLAR}
+            usage={usage.ai}
+            unit={MICROS_PER_DOLLAR}
             format={(value) => dollars.format(value)}
           />
-          <Meter
+          <UsageMeter
+            meter="sandbox"
             label="Sandbox time"
             description="Counted while a bot's sandbox is running, including while its desktop is open."
-            used={usage.sandbox.used / 3600}
-            limit={
-              usage.sandbox.limit === null ? null : usage.sandbox.limit / 3600
-            }
+            usage={usage.sandbox}
+            unit={3600}
             format={(value) => `${hours.format(value)} hours`}
           />
           {connectedApps && (
@@ -131,6 +145,53 @@ export default async function Page() {
           )}
         </CardContent>
       </Card>
+    </div>
+  )
+}
+
+// A metered allowance with its add-on credit, and a way to buy more
+function UsageMeter({
+  meter,
+  label,
+  description,
+  usage,
+  unit,
+  format,
+}: {
+  meter: Meter
+  label: string
+  description: string
+  usage: MeterUsage
+  // How many of the ledger's units make one shown unit
+  unit: number
+  format: (value: number) => string
+}) {
+  const { used, limit, credit } = usage
+  const left = creditLeft(usage)
+
+  return (
+    <div className="flex flex-col gap-3">
+      <Meter
+        label={label}
+        description={description}
+        used={used / unit}
+        limit={limit === null ? null : (limit + credit) / unit}
+        format={format}
+      />
+      {limit !== null && (
+        <div className="flex items-center gap-3">
+          <p className="text-xs text-muted-foreground">
+            {credit > 0
+              ? `${format(limit / unit)} from your plan and ${format(credit / unit)} from add-ons, with ${format(left / unit)} of add-ons left. Add-ons carry over until they're used.`
+              : "Running low? Add-ons cost much less than upgrading and carry over until they're used."}
+          </p>
+          <BuyPackDialog meter={meter}>
+            <Button variant="outline" size="sm" className="ml-auto shrink-0">
+              Buy more
+            </Button>
+          </BuyPackDialog>
+        </div>
+      )}
     </div>
   )
 }
