@@ -70,7 +70,15 @@ export async function getDesktopUrl(
       NOVNC_PORT,
       URL_TTL_SECONDS
     )
+    // The page loads through Arlo's proxy (app/api/desktop), which skips
+    // Daytona's preview warning; the screen's WebSocket goes straight to
+    // Daytona, since WebSockets never get the warning
+    const { host } = new URL(url)
     const params = new URLSearchParams({
+      host,
+      port: "443",
+      encrypt: "true",
+      path: "websockify",
       autoconnect: "true",
       reconnect: "true",
       // Scale the remote screen to the frame; "remote" would resize the
@@ -85,7 +93,7 @@ export async function getDesktopUrl(
       initialState: initialState ?? "unknown",
       durationMs: Date.now() - startedAt,
     })
-    return { success: true, url: `${url}/vnc.html?${params}` }
+    return { success: true, url: `/api/desktop/${host}/vnc.html?${params}` }
   } catch (error) {
     console.error("Failed to open desktop", bot.sandboxId, error)
     return { success: false, error: "Couldn't reach the bot's desktop." }

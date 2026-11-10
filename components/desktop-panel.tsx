@@ -288,6 +288,9 @@ function DesktopFrame({
         src={src}
         title={title}
         tabIndex={interactive ? 0 : -1}
+        // The sandbox serves this page, so it gets an opaque origin that
+        // can't reach the app; the proxy's CSP sandboxes it too
+        sandbox="allow-scripts allow-pointer-lock"
         allow="clipboard-read; clipboard-write"
         className="size-full border-0"
       />
