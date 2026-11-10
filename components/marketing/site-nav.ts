@@ -6,6 +6,7 @@ export const LANDING_PATH = "/welcome"
 export const navLinks = [
   { href: `${LANDING_PATH}#features`, label: "Features" },
   { href: `${LANDING_PATH}#desktop`, label: "Desktop" },
+  { href: "/demo", label: "Demo" },
   { href: `${LANDING_PATH}#pricing`, label: "Pricing" },
   { href: `${LANDING_PATH}#faq`, label: "FAQ" },
   { href: "/contact", label: "Contact" },

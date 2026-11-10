@@ -3,12 +3,13 @@ import {
   ArrowRightIcon,
   BellIcon,
   FileImageIcon,
+  PlayIcon,
   SparklesIcon,
 } from "lucide-react"
 import Link from "next/link"
 
 import { ChatAvatar } from "@/components/chat-avatar"
-import { LANDING_PATH, SIGN_UP_HREF } from "@/components/marketing/site-nav"
+import { SIGN_UP_HREF } from "@/components/marketing/site-nav"
 import { Badge } from "@/components/ui/badge"
 import { Bubble, BubbleContent } from "@/components/ui/bubble"
 import { Button } from "@/components/ui/button"
@@ -73,10 +74,11 @@ function Hero() {
             size="lg"
             variant="outline"
             className="h-10 bg-background/60 px-5"
-            render={<Link href={`${LANDING_PATH}#pricing`} />}
+            render={<Link href="/demo" />}
             nativeButton={false}
           >
-            See pricing
+            <PlayIcon data-icon="inline-start" />
+            Watch the demo
           </Button>
         </div>
         <HeroChat />
