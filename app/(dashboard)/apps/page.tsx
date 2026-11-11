@@ -62,7 +62,7 @@ export default async function Page(props: PageProps<"/apps">) {
   } catch (error) {
     console.error("Failed to load apps", error)
     return (
-      <div className="flex min-h-svh">
+      <div className="flex flex-1">
         <Empty>
           <EmptyHeader>
             <EmptyMedia variant="icon">
@@ -86,7 +86,7 @@ export default async function Page(props: PageProps<"/apps">) {
   const returnedFrom = typeof app === "string" ? app : undefined
 
   return (
-    <div className="mx-auto flex min-h-svh w-full max-w-2xl flex-col gap-8 px-4 py-16">
+    <div className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-8 px-4 py-8 md:py-16">
       <ConnectResultToast
         name={
           [...connected, ...catalog].find(

@@ -64,7 +64,7 @@ export default async function Page({
 
   if (!usage) {
     return (
-      <div className="flex min-h-svh">
+      <div className="flex flex-1">
         {checkoutReturn}
         <Empty>
           <EmptyHeader>
@@ -92,7 +92,7 @@ export default async function Page({
   const resetsIn = formatDistanceToNowStrict(period.end)
 
   return (
-    <div className="mx-auto flex min-h-svh w-full max-w-2xl flex-col gap-6 px-4 py-16">
+    <div className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-6 px-4 py-8 md:py-16">
       {checkoutReturn}
       <div className="flex flex-col gap-1">
         <h1 className="text-2xl font-semibold tracking-tight">Usage</h1>

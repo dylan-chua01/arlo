@@ -1,6 +1,7 @@
 import { cookies } from "next/headers"
 
 import { AppSidebar } from "@/components/app-sidebar"
+import { MobileTopBar } from "@/components/mobile-top-bar"
 import { TaskNotifications } from "@/components/task-notifications"
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
 
@@ -15,7 +16,10 @@ export default async function DashboardLayout({
   return (
     <SidebarProvider defaultOpen={defaultOpen}>
       <AppSidebar />
-      <SidebarInset>{children}</SidebarInset>
+      <SidebarInset>
+        <MobileTopBar />
+        {children}
+      </SidebarInset>
       <TaskNotifications />
     </SidebarProvider>
   )

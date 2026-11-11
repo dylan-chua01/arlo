@@ -6,7 +6,7 @@ export default async function Page() {
   await auth.protect()
 
   return (
-    <div className="flex min-h-svh flex-col items-center gap-8 px-4 py-16">
+    <div className="flex flex-1 flex-col items-center gap-8 px-4 py-8 md:py-16">
       <div className="flex max-w-xl flex-col items-center gap-2 text-center">
         <h1 className="text-2xl font-semibold tracking-tight">Choose a plan</h1>
         <p className="text-muted-foreground">

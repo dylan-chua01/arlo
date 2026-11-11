@@ -31,6 +31,7 @@ import {
 } from "@/components/ui/empty"
 import { ResizablePanel } from "@/components/ui/resizable"
 import { Spinner } from "@/components/ui/spinner"
+import { useIsMobile } from "@/hooks/use-mobile"
 import { useUpgradeToast, useUsageLimitToast } from "@/hooks/use-upgrade-toast"
 import type { Bot } from "@/lib/db/schema"
 
@@ -38,6 +39,9 @@ const DesktopPanelContext = createContext<{
   panelRef: RefObject<PanelImperativeHandle | null>
   open: boolean
   setOpen: (open: boolean) => void
+  // The fullscreen dialog. On phones it's the only way to see the desktop.
+  fullscreen: boolean
+  setFullscreen: (fullscreen: boolean) => void
 } | null>(null)
 
 function useDesktopPanel() {
@@ -58,9 +62,12 @@ export function DesktopPanelProvider({
 }) {
   const panelRef = usePanelRef()
   const [open, setOpen] = useState(defaultOpen)
+  const [fullscreen, setFullscreen] = useState(false)
 
   return (
-    <DesktopPanelContext value={{ panelRef, open, setOpen }}>
+    <DesktopPanelContext
+      value={{ panelRef, open, setOpen, fullscreen, setFullscreen }}
+    >
       {children}
     </DesktopPanelContext>
   )
@@ -75,13 +82,17 @@ export function DesktopPanel({
 > & {
   bot?: Pick<Bot, "id" | "name"> | null
 }) {
-  const { panelRef, setOpen } = useDesktopPanel()
+  const {
+    panelRef,
+    setOpen,
+    fullscreen: dialogOpen,
+    setFullscreen: setDialogOpen,
+  } = useDesktopPanel()
   const [desktop, setDesktop] = useState<
     | { status: "idle" | "loading" }
     | { status: "ready"; url: string; key: number }
     | { status: "error"; error: string }
   >({ status: "idle" })
-  const [dialogOpen, setDialogOpen] = useState(false)
   // Lags dialogOpen until the close animation ends, so the frame doesn't jump
   // back to the panel while the dialog is still fading out
   const [frameInDialog, setFrameInDialog] = useState(false)
@@ -110,6 +121,26 @@ export function DesktopPanel({
 
   const title = `${bot?.name ?? "Bot"}'s screen`
 
+  const status =
+    desktop.status === "error" ? (
+      <span className="px-4 text-muted-foreground">{desktop.error}</span>
+    ) : desktop.status !== "ready" ? (
+      <Spinner className="text-muted-foreground" />
+    ) : null
+
+  const reconnectButton = (
+    <Button
+      variant="ghost"
+      size="icon-sm"
+      className="text-muted-foreground"
+      aria-label="Reconnect"
+      disabled={desktop.status === "loading"}
+      onClick={load}
+    >
+      <RotateCwIcon />
+    </Button>
+  )
+
   return (
     <ResizablePanel
       panelRef={panelRef}
@@ -132,10 +163,12 @@ export function DesktopPanel({
             // focus moving into the frame would otherwise end the session
             onOpenChange={(open, { reason }) => {
               if (open || reason === "close-press") setDialogOpen(open)
-              if (open) setFrameInDialog(true)
             }}
             onOpenChangeComplete={(open) => {
-              if (!open) setFrameInDialog(false)
+              setFrameInDialog(open)
+              // On phones the dialog opens from the header without the panel
+              // ever opening, so it loads the desktop too
+              if (open && desktop.status === "idle") load()
             }}
             // A modal dialog traps focus, and the frame lives outside it
             modal={false}
@@ -143,16 +176,7 @@ export function DesktopPanel({
             <figure className="flex flex-col items-center gap-3">
               <figcaption className="flex w-full items-center justify-between gap-2 text-sm text-muted-foreground">
                 <span className="truncate">{title}</span>
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  className="text-muted-foreground"
-                  aria-label="Reconnect"
-                  disabled={desktop.status === "loading"}
-                  onClick={load}
-                >
-                  <RotateCwIcon />
-                </Button>
+                {reconnectButton}
               </figcaption>
               <DialogTrigger
                 disabled={desktop.status !== "ready"}
@@ -163,13 +187,7 @@ export function DesktopPanel({
                   ref={setPanelSlot}
                   className="flex size-full items-center justify-center overflow-hidden rounded-sm bg-muted"
                 >
-                  {desktop.status === "error" ? (
-                    <span className="px-4 text-muted-foreground">
-                      {desktop.error}
-                    </span>
-                  ) : desktop.status !== "ready" ? (
-                    <Spinner className="text-muted-foreground" />
-                  ) : null}
+                  {status}
                 </div>
               </DialogTrigger>
             </figure>
@@ -177,13 +195,17 @@ export function DesktopPanel({
               initialFocus={frameRef}
               className="flex h-[calc(100svh-2rem)] flex-col sm:max-w-[calc(100%-2rem)]"
             >
-              <DialogHeader>
-                <DialogTitle>{title}</DialogTitle>
+              {/* Room on the end for the close button */}
+              <DialogHeader className="flex-row items-center justify-between pe-8">
+                <DialogTitle className="truncate">{title}</DialogTitle>
+                {reconnectButton}
               </DialogHeader>
               <div
                 ref={setDialogSlot}
-                className="min-h-0 flex-1 overflow-hidden rounded-sm bg-muted"
-              />
+                className="flex min-h-0 flex-1 items-center justify-center overflow-hidden rounded-sm bg-muted"
+              >
+                {status}
+              </div>
             </DialogContent>
           </Dialog>
           {desktop.status === "ready" && (
@@ -192,7 +214,7 @@ export function DesktopPanel({
               ref={frameRef}
               src={desktop.url}
               title={title}
-              target={frameInDialog ? dialogSlot : panelSlot}
+              target={dialogOpen || frameInDialog ? dialogSlot : panelSlot}
               interactive={dialogOpen}
               // The dialog zooms in and out, which no resize event reports
               track={dialogOpen || frameInDialog}
@@ -300,7 +322,9 @@ function DesktopFrame({
 }
 
 export function DesktopPanelTrigger() {
-  const { panelRef, open } = useDesktopPanel()
+  const { panelRef, open, fullscreen, setFullscreen } = useDesktopPanel()
+  // Too narrow to show the desktop beside the chat
+  const isMobile = useIsMobile()
 
   return (
     <Button
@@ -308,9 +332,13 @@ export function DesktopPanelTrigger() {
       size="icon-sm"
       className="ms-auto text-muted-foreground"
       aria-label="Desktop"
-      aria-pressed={open}
+      aria-pressed={isMobile ? fullscreen : open}
       onClick={() =>
-        open ? panelRef.current?.collapse() : panelRef.current?.expand()
+        isMobile
+          ? setFullscreen(true)
+          : open
+            ? panelRef.current?.collapse()
+            : panelRef.current?.expand()
       }
     >
       <MonitorIcon />

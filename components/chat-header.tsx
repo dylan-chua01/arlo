@@ -2,6 +2,7 @@ import { BotDialog } from "@/components/bot-dialog"
 import { GroupChatAvatar } from "@/components/group-chat-avatar"
 import { GroupChatDialog } from "@/components/group-chat-dialog"
 import { Button } from "@/components/ui/button"
+import { SidebarTrigger } from "@/components/ui/sidebar"
 import type { Bot, Chat } from "@/lib/db/schema"
 
 export function ChatHeader({
@@ -40,6 +41,8 @@ export function ChatHeader({
 
   return (
     <header className="sticky top-0 z-10 flex h-12 shrink-0 items-center gap-2 border-b bg-background px-4">
+      {/* On phones the sidebar is a drawer, and this opens it */}
+      <SidebarTrigger className="-ms-1.5 text-muted-foreground md:hidden" />
       <h1 className="flex min-w-0 items-center gap-2 text-sm font-medium">
         {bot ? (
           <BotDialog bot={bot}>{titleButton}</BotDialog>

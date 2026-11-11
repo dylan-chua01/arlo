@@ -476,10 +476,23 @@ export const chatAgent = chat
     // A newer client means this run is on stale code, so hand the chat to the
     // latest version, which answers the same message. Only newer: an older
     // client would land back on this version and loop.
-    onTurnStart: async ({ clientData }) => {
-      if ((clientData?.agentVersion ?? 0) > CHAT_AGENT_VERSION) {
-        chat.requestUpgrade()
+    onTurnStart: async ({ clientData, continuation, turn, chatId, ctx }) => {
+      const clientVersion = clientData?.agentVersion ?? 0
+      if (clientVersion <= CHAT_AGENT_VERSION) return
+
+      // This run just took the chat over from another and is still behind, so
+      // nothing newer is deployed. Handing off again would start new runs
+      // forever without replying, so answer on this version and flag it.
+      if (continuation && turn === 0) {
+        Sentry.logger.warn("Chat agent is older than the client", {
+          chatId,
+          clientVersion,
+          agentVersion: CHAT_AGENT_VERSION,
+          deployment: ctx.deployment?.id ?? "unknown",
+        })
+        return
       }
+      chat.requestUpgrade()
     },
     onTurnComplete: async ({
       error,

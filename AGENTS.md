@@ -107,11 +107,7 @@ released in 2026 and never had one, so any older-looking PHP, Python, Rust, Go,
 Dart or C# API attributed to DiceBear is invented rather than outdated.
 
 <!-- TRIGGER.DEV SKILLS START -->
-## Trigger.dev secret key
-
-`TRIGGER_SECRET_KEY` in `.env.local` is the Development environment key (`tr_dev_…`) on purpose. Deployments use a different key, the Production environment key (`tr_prod_…`), which is set in the deployment's environment variables, not in `.env.local`. Don't flag the mismatch with the Trigger.dev dashboard or production, and never replace the local key with the production one or vice versa.
-
 ## Trigger.dev agent skills
 
-This project has Trigger.dev agent skills installed in `.agents/skills/`. Before writing or changing Trigger.dev code (background tasks, scheduled tasks, realtime, or chat.agent AI agents), load the most relevant skill: `trigger-getting-started`, `trigger-realtime-and-frontend`, `trigger-authoring-chat-agent`, `trigger-authoring-tasks`, `trigger-chat-agent-advanced`, `trigger-cost-savings`.
+This project has Trigger.dev agent skills installed in `.agents/skills/`. Before writing or changing Trigger.dev code (background tasks, scheduled tasks, realtime, or chat.agent AI agents), load the most relevant skill: `trigger-authoring-tasks`, `trigger-chat-agent-advanced`, `trigger-cost-savings`, `trigger-getting-started`, `trigger-realtime-and-frontend`, `trigger-authoring-chat-agent`.
 <!-- TRIGGER.DEV SKILLS END -->

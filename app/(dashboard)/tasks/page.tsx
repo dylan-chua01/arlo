@@ -66,8 +66,8 @@ export default async function Page() {
   ])
 
   return (
-    <div className="mx-auto flex min-h-svh w-full max-w-2xl flex-col gap-8 px-4 py-16">
-      <div className="flex items-start justify-between gap-4">
+    <div className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-8 px-4 py-8 md:py-16">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex flex-col gap-1">
           <h1 className="text-2xl font-semibold tracking-tight">Tasks</h1>
           <p className="text-muted-foreground">
@@ -79,7 +79,7 @@ export default async function Page() {
         </div>
         {bots.length > 0 && (
           <TaskDialog bots={bots}>
-            <Button className="shrink-0">
+            <Button className="shrink-0 self-start">
               <PlusIcon data-icon="inline-start" />
               New task
             </Button>

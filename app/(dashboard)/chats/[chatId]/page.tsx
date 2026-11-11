@@ -1,4 +1,6 @@
 import { auth } from "@clerk/nextjs/server"
+import { headers } from "next/headers"
+import { userAgent } from "next/server"
 import { notFound } from "next/navigation"
 
 import { Chat } from "@/components/chat"
@@ -55,10 +57,15 @@ export default async function Page(props: PageProps<"/chats/[chatId]">) {
   }
 
   const bot = chat.bots[0] ?? null
+  // Phones have no room beside the chat, so the desktop starts closed and
+  // opens fullscreen from the header instead
+  const isMobile =
+    userAgent({ headers: await headers() }).device.type === "mobile"
 
   return (
-    // Open from the start, so you can watch the bot work without asking to
-    <DesktopPanelProvider defaultOpen>
+    // Open from the start on bigger screens, so you can watch the bot work
+    // without asking to
+    <DesktopPanelProvider defaultOpen={!isMobile}>
       <ChatFilesProvider>
         {/* The group's inline height: 100% beats a class, so its parent sets the height */}
         <div className="h-svh">
@@ -72,8 +79,12 @@ export default async function Page(props: PageProps<"/chats/[chatId]">) {
               </ChatHeader>
               <Chat key={chat.id} id={chat.id} name={name} />
             </ResizablePanel>
-            <ResizableHandle />
-            <DesktopPanel bot={bot} defaultSize="45%" minSize="30%" />
+            <ResizableHandle className="max-md:hidden" />
+            <DesktopPanel
+              bot={bot}
+              defaultSize={isMobile ? "0%" : "45%"}
+              minSize="30%"
+            />
           </ResizablePanelGroup>
         </div>
       </ChatFilesProvider>
