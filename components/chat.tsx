@@ -1,6 +1,7 @@
 "use client"
 
-import { useId, useRef, useState } from "react"
+import { useEffect, useId, useRef, useState } from "react"
+import { AnimatePresence, motion } from "motion/react"
 import { createPortal } from "react-dom"
 import { useChat } from "@ai-sdk/react"
 import { useAuth } from "@clerk/nextjs"
@@ -41,6 +42,7 @@ import {
   ConversationScrollButton,
 } from "@/components/ai-elements/conversation"
 import { Image } from "@/components/ai-elements/image"
+import { Shimmer } from "@/components/ai-elements/shimmer"
 import {
   Message,
   MessageContent,
@@ -528,20 +530,63 @@ function findAskedBot(message: ChatUIMessage) {
     : undefined
 }
 
+const TYPING_WORDS = [
+  "Thinking",
+  "Pondering",
+  "Churning",
+  "Mulling",
+  "Brewing",
+  "Noodling",
+  "Tinkering",
+  "Musing",
+  "Percolating",
+  "Conjuring",
+  "Crunching",
+  "Scheming",
+  "Wrangling",
+  "Cooking",
+]
+
 function TypingBubble() {
+  // Start on a random word so each reply doesn't open the same way
+  const [index, setIndex] = useState(() =>
+    Math.floor(Math.random() * TYPING_WORDS.length)
+  )
+  useEffect(() => {
+    const timer = setInterval(
+      () => setIndex((i) => (i + 1) % TYPING_WORDS.length),
+      2500
+    )
+    return () => clearInterval(timer)
+  }, [])
+  const word = TYPING_WORDS[index]
+
   return (
-    <div
-      role="status"
-      aria-label="Typing"
-      className="flex w-fit items-center gap-1 rounded-2xl bg-secondary px-3.5 py-3"
-    >
-      {[0, 150, 300].map((delay) => (
-        <span
-          key={delay}
-          className="size-1.5 animate-bounce rounded-full bg-muted-foreground"
-          style={{ animationDelay: `${delay}ms` }}
-        />
-      ))}
+    <div role="status" className="flex items-center gap-2.5">
+      <div
+        aria-hidden
+        className="flex w-fit items-center gap-1 rounded-2xl bg-secondary px-3.5 py-3"
+      >
+        {[0, 150, 300].map((delay) => (
+          <span
+            key={delay}
+            className="size-1.5 animate-bounce rounded-full bg-muted-foreground"
+            style={{ animationDelay: `${delay}ms` }}
+          />
+        ))}
+      </div>
+      <AnimatePresence mode="wait" initial={false}>
+        <motion.span
+          key={word}
+          initial={{ opacity: 0, y: 6 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -6 }}
+          transition={{ duration: 0.2 }}
+          className="text-sm"
+        >
+          <Shimmer as="span" duration={1.5}>{`${word}…`}</Shimmer>
+        </motion.span>
+      </AnimatePresence>
     </div>
   )
 }

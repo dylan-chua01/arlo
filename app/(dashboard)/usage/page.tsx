@@ -133,6 +133,7 @@ export default async function Page({
             usage={usage.ai}
             unit={MICROS_PER_DOLLAR}
             format={(value) => dollars.format(value)}
+            asPercent
             resetsIn={resetsIn}
           />
           <UsageMeter
@@ -169,6 +170,7 @@ function UsageMeter({
   usage,
   unit,
   format,
+  asPercent,
   resetsIn,
 }: {
   plan: PlanSlug
@@ -179,6 +181,8 @@ function UsageMeter({
   // How many of the ledger's units make one shown unit
   unit: number
   format: (value: number) => string
+  // Show the share of the allowance used rather than the amount
+  asPercent?: boolean
   resetsIn: string
 }) {
   const { used, limit, topUp } = usage
@@ -192,6 +196,7 @@ function UsageMeter({
         used={used / unit}
         limit={limit === null ? null : (limit + topUp) / unit}
         format={format}
+        asPercent={asPercent}
       />
       {rate && (
         <div className="flex items-center gap-3">
@@ -217,6 +222,7 @@ function Meter({
   used,
   limit,
   format,
+  asPercent,
 }: {
   label: string
   description: string
@@ -224,6 +230,7 @@ function Meter({
   // Null is unlimited
   limit: number | null
   format: (value: number) => string
+  asPercent?: boolean
 }) {
   if (limit === null) {
     return (
@@ -231,7 +238,7 @@ function Meter({
         <div className="flex items-center gap-2">
           <span className="text-sm font-medium">{label}</span>
           <span className="ml-auto text-sm text-muted-foreground tabular-nums">
-            {format(used)} · Unlimited
+            {asPercent ? "Unlimited" : `${format(used)} · Unlimited`}
           </span>
         </div>
         <p className="text-xs text-muted-foreground">{description}</p>
@@ -246,10 +253,19 @@ function Meter({
       <Progress value={shown} max={limit}>
         <ProgressLabel>{label}</ProgressLabel>
         <span className="ml-auto text-sm text-muted-foreground tabular-nums">
-          {format(shown)} of {format(limit)}
+          {asPercent
+            ? formatPercent(shown, limit)
+            : `${format(shown)} of ${format(limit)}`}
         </span>
       </Progress>
       <p className="text-xs text-muted-foreground">{description}</p>
     </div>
   )
+}
+
+// Rounded down, so it only reads 100% once the allowance is gone
+function formatPercent(used: number, limit: number) {
+  if (limit <= 0) return "100% used"
+  const percent = Math.floor((used / limit) * 100)
+  return used > 0 && percent === 0 ? "Under 1% used" : `${percent}% used`
 }
