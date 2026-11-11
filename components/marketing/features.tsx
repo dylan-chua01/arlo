@@ -15,45 +15,30 @@ import {
 } from "lucide-react"
 
 import { ChatAvatar } from "@/components/chat-avatar"
+import { Accent, Reveal } from "@/components/marketing/motion"
+import { SectionHeading } from "@/components/marketing/section-heading"
 import { cn } from "@/lib/utils"
-
-function SectionHeading({
-  eyebrow,
-  title,
-  description,
-}: {
-  eyebrow: string
-  title: string
-  description: string
-}) {
-  return (
-    <div className="mx-auto flex max-w-2xl flex-col items-center gap-3 text-center">
-      <p className="text-sm font-medium text-brand">{eyebrow}</p>
-      <h2 className="text-3xl font-semibold tracking-tight text-balance sm:text-4xl">
-        {title}
-      </h2>
-      <p className="text-pretty text-muted-foreground">{description}</p>
-    </div>
-  )
-}
 
 function FeatureCard({
   icon: Icon,
   title,
   description,
   className,
+  delay = 0,
   children,
 }: {
   icon: React.ComponentType<{ className?: string }>
   title: string
   description: string
   className?: string
+  delay?: number
   children?: React.ReactNode
 }) {
   return (
-    <div
+    <Reveal
+      delay={delay}
       className={cn(
-        "flex flex-col gap-5 overflow-hidden rounded-2xl border bg-card p-6",
+        "flex flex-col gap-5 overflow-hidden rounded-2xl border bg-card p-6 transition-[translate,box-shadow] duration-300 hover:-translate-y-1 hover:shadow-xl hover:shadow-brand/5",
         className
       )}
     >
@@ -67,7 +52,7 @@ function FeatureCard({
         </p>
       </div>
       {children && <div className="mt-auto">{children}</div>}
-    </div>
+    </Reveal>
   )
 }
 
@@ -93,7 +78,11 @@ function Features() {
       <div className="mx-auto flex max-w-6xl flex-col gap-14 px-4 sm:px-6">
         <SectionHeading
           eyebrow="Features"
-          title="More than a chatbot. A team that does the work."
+          title={
+            <>
+              More than a chatbot. <Accent>A team that does the work.</Accent>
+            </>
+          }
           description="Every Arlo bot is a teammate with its own personality, memory and computer, so it can finish jobs instead of just talking about them."
         />
         <div className="grid gap-4 md:grid-cols-6">
@@ -127,6 +116,7 @@ function Features() {
             title="Its own computer"
             description="Every bot gets a private cloud computer. It runs code, uses a browser and makes real files. Open its desktop to watch it work, or take over."
             className="md:col-span-3"
+            delay={0.1}
           >
             <div className="overflow-hidden rounded-xl border bg-background font-mono text-xs">
               <div className="flex items-center gap-1.5 border-b px-3 py-2">
@@ -179,6 +169,7 @@ function Features() {
             title="Works in your apps"
             description="Connect the tools you already use, so bots can read, write and send things there for you."
             className="md:col-span-2"
+            delay={0.1}
           >
             <div className="flex flex-wrap gap-1.5">
               {apps.map((app) => (
@@ -200,6 +191,7 @@ function Features() {
             title="Work on a schedule"
             description="Set a task to repeat, like every weekday at 9:00, or send one off to run in the background while you do something else."
             className="md:col-span-2"
+            delay={0.2}
           >
             <div className="flex flex-col gap-1.5">
               {[
@@ -229,6 +221,7 @@ function Features() {
             title="Know when it's done"
             description="A chime and a desktop notification let you know when a bot replies or a task finishes, so you can step away."
             className="md:col-span-3"
+            delay={0.1}
           />
         </div>
       </div>
@@ -236,49 +229,4 @@ function Features() {
   )
 }
 
-const steps = [
-  {
-    title: "Create a bot",
-    description:
-      "Pick a face, give it a name and a job, and describe how it should work. Start from a preset or write your own.",
-  },
-  {
-    title: "Give it something to do",
-    description:
-      "Ask in chat, share files, or connect your apps. Add more bots to a group chat when the work needs a team.",
-  },
-  {
-    title: "Let it run",
-    description:
-      "Watch it work on its desktop, or schedule the task and come back to the results. You'll get a notification when it's done.",
-  },
-]
-
-function HowItWorks() {
-  return (
-    <section className="border-y bg-muted/40 py-24">
-      <div className="mx-auto flex max-w-6xl flex-col gap-14 px-4 sm:px-6">
-        <SectionHeading
-          eyebrow="How it works"
-          title="Up and running in minutes"
-          description="No setup or servers to manage. Each bot's computer is ready the moment you create it."
-        />
-        <ol className="grid gap-8 md:grid-cols-3">
-          {steps.map((step, index) => (
-            <li key={step.title} className="flex flex-col gap-3">
-              <span className="flex size-9 items-center justify-center rounded-full bg-brand text-sm font-semibold text-brand-foreground">
-                {index + 1}
-              </span>
-              <h3 className="font-semibold">{step.title}</h3>
-              <p className="text-sm text-pretty text-muted-foreground">
-                {step.description}
-              </p>
-            </li>
-          ))}
-        </ol>
-      </div>
-    </section>
-  )
-}
-
-export { Features, HowItWorks, SectionHeading }
+export { Features }

@@ -1,6 +1,7 @@
 import Link from "next/link"
 
-import { SectionHeading } from "@/components/marketing/features"
+import { Accent } from "@/components/marketing/motion"
+import { SectionHeading } from "@/components/marketing/section-heading"
 import {
   Accordion,
   AccordionContent,
@@ -67,7 +68,11 @@ function Faq() {
       <div className="mx-auto flex max-w-3xl flex-col gap-12 px-4 sm:px-6">
         <SectionHeading
           eyebrow="FAQ"
-          title="Questions, answered"
+          title={
+            <>
+              Questions, <Accent>answered.</Accent>
+            </>
+          }
           description="Everything you need to know before you start."
         />
         <Accordion className="rounded-2xl border bg-card px-6">

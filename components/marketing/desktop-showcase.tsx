@@ -1,3 +1,5 @@
+"use client"
+
 import {
   EyeIcon,
   FolderIcon,
@@ -8,9 +10,11 @@ import {
   RotateCwIcon,
   TerminalIcon,
 } from "lucide-react"
+import { motion } from "motion/react"
 
 import { ChatAvatar } from "@/components/chat-avatar"
-import { SectionHeading } from "@/components/marketing/features"
+import { Accent, Reveal } from "@/components/marketing/motion"
+import { SectionHeading } from "@/components/marketing/section-heading"
 import { Bubble, BubbleContent } from "@/components/ui/bubble"
 import {
   Message,
@@ -49,23 +53,31 @@ function DesktopShowcase() {
       <div className="mx-auto flex max-w-6xl flex-col gap-14 px-4 sm:px-6">
         <SectionHeading
           eyebrow="Its own desktop"
-          title="Watch your bot work, right beside the chat"
+          title={
+            <>
+              Watch your bot work, <Accent>right beside the chat.</Accent>
+            </>
+          }
           description="Every one-on-one chat opens with the bot's desktop next to it. See what it's doing on its computer, and step in whenever you want."
         />
-        <ShowcaseWindow />
-        <ul className="grid gap-8 md:grid-cols-3">
-          {points.map((point) => (
-            <li key={point.title} className="flex flex-col gap-2">
-              <div className="flex size-9 items-center justify-center rounded-lg bg-brand/10 text-brand">
-                <point.icon className="size-4.5" />
+        <Reveal>
+          <ShowcaseWindow />
+        </Reveal>
+        <div className="grid gap-8 md:grid-cols-3">
+          {points.map((point, index) => (
+            <Reveal key={point.title} delay={index * 0.1}>
+              <div className="flex flex-col gap-2">
+                <div className="flex size-9 items-center justify-center rounded-lg bg-brand/10 text-brand">
+                  <point.icon className="size-4.5" />
+                </div>
+                <h3 className="font-semibold">{point.title}</h3>
+                <p className="text-sm text-pretty text-muted-foreground">
+                  {point.description}
+                </p>
               </div>
-              <h3 className="font-semibold">{point.title}</h3>
-              <p className="text-sm text-pretty text-muted-foreground">
-                {point.description}
-              </p>
-            </li>
+            </Reveal>
           ))}
-        </ul>
+        </div>
       </div>
     </section>
   )
@@ -130,7 +142,9 @@ function ShowcaseWindow() {
                   <span className="size-2 rounded-full bg-muted-foreground/30" />
                   <span className="ms-2 flex min-w-0 flex-1 items-center gap-1 rounded bg-muted px-2 py-0.5 text-[10px] text-muted-foreground">
                     <GlobeIcon aria-hidden="true" className="size-2.5" />
-                    <span className="truncate">analytics.example.com/posts</span>
+                    <span className="truncate">
+                      analytics.example.com/posts
+                    </span>
                   </span>
                 </div>
                 <div className="flex flex-1 flex-col gap-2 p-3">
@@ -139,20 +153,42 @@ function ShowcaseWindow() {
                   </span>
                   <div className="flex flex-1 items-end gap-[6%]">
                     {bars.map((height, i) => (
-                      <div
+                      <motion.div
                         key={i}
                         className="flex-1 rounded-t-sm bg-brand/80"
-                        style={{ height: `${height}%` }}
+                        initial={{ height: "0%" }}
+                        whileInView={{ height: `${height}%` }}
+                        viewport={{ once: true }}
+                        transition={{
+                          delay: 0.6 + i * 0.12,
+                          type: "spring",
+                          stiffness: 120,
+                          damping: 16,
+                        }}
                       />
                     ))}
                   </div>
                 </div>
               </div>
-              {/* The pointer, mid-click */}
-              <MousePointer2Icon
+              {/* The pointer, moving between the bars and the address bar */}
+              <motion.div
                 aria-hidden="true"
-                className="absolute top-[38%] left-[78%] size-5 fill-foreground text-background drop-shadow"
-              />
+                className="absolute"
+                initial={{ left: "50%", top: "70%" }}
+                animate={{
+                  left: ["50%", "78%", "78%", "30%", "30%", "50%"],
+                  top: ["70%", "38%", "38%", "12%", "12%", "70%"],
+                  scale: [1, 1, 0.85, 1, 0.85, 1],
+                }}
+                transition={{
+                  duration: 8,
+                  times: [0, 0.2, 0.25, 0.5, 0.55, 1],
+                  ease: "easeInOut",
+                  repeat: Infinity,
+                }}
+              >
+                <MousePointer2Icon className="size-5 fill-foreground text-background drop-shadow" />
+              </motion.div>
               {/* The taskbar */}
               <div className="absolute inset-x-0 bottom-0 flex items-center justify-center gap-2 bg-background/70 py-1.5 backdrop-blur">
                 {[GlobeIcon, TerminalIcon, FolderIcon].map((Icon, i) => (

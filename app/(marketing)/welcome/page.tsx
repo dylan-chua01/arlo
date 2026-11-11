@@ -6,10 +6,14 @@ import Link from "next/link"
 import { LogoMark } from "@/components/logo"
 import { DesktopShowcase } from "@/components/marketing/desktop-showcase"
 import { Faq } from "@/components/marketing/faq"
-import { Features, HowItWorks } from "@/components/marketing/features"
+import { Features } from "@/components/marketing/features"
 import { Hero } from "@/components/marketing/hero"
+import { HowItWorks } from "@/components/marketing/how-it-works"
+import { Marquee } from "@/components/marketing/marquee"
+import { Accent, Reveal } from "@/components/marketing/motion"
 import { Pricing } from "@/components/marketing/pricing"
 import { SIGN_UP_HREF } from "@/components/marketing/site-nav"
+import { Teammates } from "@/components/marketing/teammates"
 import { Button } from "@/components/ui/button"
 
 export const metadata: Metadata = {
@@ -23,9 +27,11 @@ export default function Page() {
   return (
     <>
       <Hero />
-      <Features />
-      <DesktopShowcase />
+      <Marquee />
       <HowItWorks />
+      <Features />
+      <Teammates />
+      <DesktopShowcase />
       <Pricing />
       <Faq />
       <CallToAction />
@@ -36,15 +42,19 @@ export default function Page() {
 function CallToAction() {
   return (
     <section className="px-4 py-24 sm:px-6">
-      <div className="relative mx-auto flex max-w-4xl flex-col items-center gap-6 overflow-hidden rounded-3xl bg-brand px-6 py-16 text-center text-brand-foreground">
+      <Reveal className="relative mx-auto flex max-w-4xl flex-col items-center gap-6 overflow-hidden rounded-3xl bg-brand px-6 py-20 text-center text-brand-foreground">
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute -top-24 -left-24 size-80 animate-drift rounded-full bg-white/15 blur-3xl motion-reduce:animate-none"
+        />
         <LogoMark
           aria-hidden="true"
-          className="absolute -right-16 -bottom-20 size-72 text-brand-foreground/10"
+          className="absolute -right-16 -bottom-20 size-72 animate-[spin_60s_linear_infinite] text-brand-foreground/10 motion-reduce:animate-none"
         />
-        <h2 className="max-w-xl text-3xl font-semibold tracking-tight text-balance sm:text-4xl">
-          Meet your first bot today
+        <h2 className="relative max-w-xl text-4xl font-semibold tracking-tight text-balance sm:text-5xl">
+          Meet your <Accent>first bot</Accent> today.
         </h2>
-        <p className="max-w-lg text-pretty text-brand-foreground/85">
+        <p className="relative max-w-lg text-pretty text-brand-foreground/85">
           Create an account, pick a plan, and have a bot working on its own
           computer in a couple of minutes.
         </p>
@@ -72,7 +82,7 @@ function CallToAction() {
             <ArrowRightIcon data-icon="inline-end" />
           </Button>
         </Show>
-      </div>
+      </Reveal>
     </section>
   )
 }

@@ -2,7 +2,8 @@ import { Show } from "@clerk/nextjs"
 import { CheckIcon } from "lucide-react"
 import Link from "next/link"
 
-import { SectionHeading } from "@/components/marketing/features"
+import { Accent } from "@/components/marketing/motion"
+import { SectionHeading } from "@/components/marketing/section-heading"
 import { SIGN_UP_HREF } from "@/components/marketing/site-nav"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -10,6 +11,9 @@ import { MICROS_PER_DOLLAR, PLANS, type PlanSlug } from "@/lib/billing"
 import { cn } from "@/lib/utils"
 
 const RECOMMENDED: PlanSlug = "plus"
+
+// Plans left off the landing page for now. They still exist in Clerk.
+const HIDDEN: PlanSlug[] = ["unlimited"]
 
 const blurbs: Record<PlanSlug, string> = {
   pro: "For trying out a bot or two on everyday jobs.",
@@ -71,17 +75,23 @@ function PlanButton({ recommended }: { recommended: boolean }) {
 }
 
 function Pricing() {
-  const slugs = Object.keys(PLANS) as PlanSlug[]
+  const slugs = (Object.keys(PLANS) as PlanSlug[]).filter(
+    (slug) => !HIDDEN.includes(slug)
+  )
 
   return (
     <section id="pricing" className="scroll-mt-20 py-24">
       <div className="mx-auto flex max-w-6xl flex-col gap-14 px-4 sm:px-6">
         <SectionHeading
           eyebrow="Pricing"
-          title="Simple monthly plans"
+          title={
+            <>
+              Simple <Accent>monthly plans.</Accent>
+            </>
+          }
           description="Every plan includes everything Arlo does. Bigger plans come with more AI usage, more computer time and more connected apps."
         />
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {slugs.map((slug) => {
             const plan = PLANS[slug]
             const recommended = slug === RECOMMENDED
@@ -131,9 +141,9 @@ function Pricing() {
           })}
         </div>
         <p className="text-center text-sm text-pretty text-muted-foreground">
-          Usage resets every month. Need more for just one month? Top up for
-          30% less than upgrading. Upgrade any time and keep what you&apos;ve
-          used so far; downgrades start when your billing period ends.
+          Usage resets every month. Need more for just one month? Top up for 30%
+          less than upgrading. Upgrade any time and keep what you&apos;ve used
+          so far; downgrades start when your billing period ends.
         </p>
       </div>
     </section>
