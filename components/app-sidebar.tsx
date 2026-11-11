@@ -5,6 +5,7 @@ import { ChatMenuButton } from "@/components/chat-menu-button"
 import { CreateMenu } from "@/components/create-menu"
 import { GroupChatAvatar } from "@/components/group-chat-avatar"
 import { LogoMark } from "@/components/logo"
+import { NavLinks } from "@/components/nav-links"
 import { SearchCommand } from "@/components/search-command"
 import {
   Sidebar,
@@ -46,6 +47,7 @@ export async function AppSidebar() {
           <SidebarMenuItem>
             <SearchCommand chats={chats} />
           </SidebarMenuItem>
+          <NavLinks />
         </SidebarMenu>
       </SidebarHeader>
       <SidebarContent>

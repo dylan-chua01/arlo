@@ -125,10 +125,10 @@ const steps: Step[] = [
     description:
       "Connect tools like Gmail, Slack and GitHub so bots can work in them. Ask a bot to do something every weekday at 9:00, or in the background while you're away.",
     hints: [
-      { icon: BlocksIcon, text: "Connect apps from Apps in your account menu." },
+      { icon: BlocksIcon, text: "Connect apps from Apps in the sidebar." },
       {
         icon: CalendarClockIcon,
-        text: "See and edit scheduled work from Tasks in your account menu.",
+        text: "See and edit scheduled work from Tasks in the sidebar.",
       },
     ],
   },

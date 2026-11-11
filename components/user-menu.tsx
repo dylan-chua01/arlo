@@ -2,14 +2,7 @@
 
 import { useState, useSyncExternalStore } from "react"
 import { UserButton } from "@clerk/nextjs"
-import {
-  BellIcon,
-  BellOffIcon,
-  BellRingIcon,
-  BlocksIcon,
-  GaugeIcon,
-  ListChecksIcon,
-} from "lucide-react"
+import { BellIcon, BellOffIcon, BellRingIcon, GaugeIcon } from "lucide-react"
 
 import {
   desktopPermission,
@@ -54,16 +47,6 @@ export function UserMenu() {
       }}
     >
       <UserButton.MenuItems>
-        <UserButton.Link
-          label="Apps"
-          labelIcon={<BlocksIcon className="size-4" />}
-          href="/apps"
-        />
-        <UserButton.Link
-          label="Tasks"
-          labelIcon={<ListChecksIcon className="size-4" />}
-          href="/tasks"
-        />
         <UserButton.Link
           label="Usage"
           labelIcon={<GaugeIcon className="size-4" />}
