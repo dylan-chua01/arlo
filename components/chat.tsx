@@ -79,6 +79,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { toast } from "@/components/ui/toast"
+import { VoiceInput } from "@/components/voice-input"
 import { useUpgradeToast, useUsageLimitToast } from "@/hooks/use-upgrade-toast"
 import {
   BOTS,
@@ -414,6 +415,7 @@ function ChatView({
             <PromptInputFooter>
               <PromptInputTools>
                 <AttachButton />
+                <VoiceInput />
                 {botPicker}
               </PromptInputTools>
               <PromptInputSubmit
